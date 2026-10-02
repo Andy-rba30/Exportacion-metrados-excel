@@ -12,7 +12,7 @@ Plugin para Autodesk Revit, escrito en C#, que exporta las **tablas de planifica
 - Ventana de selección con buscador, selección múltiple y opciones de formato.
 - Botón **Metrado automático**: calcula el concreto (m³) y el acero de refuerzo (kg) de vigas, columnas y
   otros elementos estructurales leyendo directamente el modelo, sin necesitar tablas de planificación.
-- Compatible con Revit 2021 a 2024 (.NET Framework 4.8) y Revit 2025+ (.NET 8).
+- Compatible con Revit 2021 a 2024 (.NET Framework 4.8), 2025 y 2026 (.NET 8) y 2027+ (.NET 10).
 
 ## Estructura
 
@@ -41,27 +41,38 @@ src/ExportacionMetrados/
 ## Requisitos
 
 - Windows con Autodesk Revit instalado (2021 o superior).
-- [SDK de .NET](https://dotnet.microsoft.com/download) 6 o superior (para `dotnet build`), o Visual Studio 2022
-  con la carga de trabajo "Desarrollo de escritorio de .NET".
+- [SDK de .NET](https://dotnet.microsoft.com/download) acorde a la versión de Revit: .NET 10 para Revit 2027,
+  .NET 8 para 2025/2026 (el SDK 10 también compila esos destinos). Para Revit 2021-2024 basta con el SDK y el
+  paquete de destino de .NET Framework 4.8 que instala Visual Studio 2022.
 
 ## Compilación e instalación
 
 Desde una terminal en la raíz del repositorio:
 
 ```powershell
-# Revit 2024 (valor por defecto)
+# Revit 2027 (valor por defecto, .NET 10)
 dotnet build -c Release
 
 # Otra versión de Revit
-dotnet build -c Release -p:RevitVersion=2023
-dotnet build -c Release -p:RevitVersion=2025
+dotnet build -c Release -p:RevitVersion=2026
+dotnet build -c Release -p:RevitVersion=2024
 ```
+
+El framework se elige automáticamente según la versión (2021-2024: net48; 2025-2026: net8.0-windows;
+2027+: net10.0-windows). Si Revit 2027 en su equipo usa otro runtime, fuércelo:
+
+```powershell
+dotnet build -c Release -p:RevitVersion=2027 -p:TargetFramework=net8.0-windows
+```
+
+Para saber qué runtime usa su Revit, mire la versión de `coreclr.dll` en la carpeta de instalación de Revit
+o el valor de `Microsoft.NETCore.App` en `Revit.runtimeconfig.json` dentro de esa misma carpeta.
 
 El proyecto busca `RevitAPI.dll` y `RevitAPIUI.dll` en `C:\Program Files\Autodesk\Revit <versión>\`.
 Si Revit está en otra ruta, pase la propiedad `RevitInstallDir`:
 
 ```powershell
-dotnet build -c Release -p:RevitVersion=2024 -p:RevitInstallDir="D:\Autodesk\Revit 2024"
+dotnet build -c Release -p:RevitVersion=2027 -p:RevitInstallDir="D:\Autodesk\Revit 2027"
 ```
 
 Al terminar la compilación el plugin se copia automáticamente a la carpeta de add-ins del usuario:
