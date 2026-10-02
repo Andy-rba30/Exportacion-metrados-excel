@@ -150,8 +150,31 @@ namespace ExportacionMetrados.Core.Metrado
                 Marca = LeerTexto(e, BuiltInParameter.ALL_MODEL_MARK),
                 Material = nombreMaterial,
                 LongitudM = AMetros(ObtenerLongitud(e)),
+                AreaM2 = AMetrosCuadrados(LeerDouble(e, BuiltInParameter.HOST_AREA_COMPUTED)),
+                EspesorM = AMetros(ObtenerEspesor(e, tipo)),
                 VolumenM3 = AMetrosCubicos(volumenPies3),
             };
+        }
+
+        /// <summary>Espesor de losas, muros y zapatas (0 si no aplica).</summary>
+        private static double ObtenerEspesor(Element e, ElementType tipo)
+        {
+            if (e is Floor)
+            {
+                double t = LeerDouble(e, BuiltInParameter.FLOOR_ATTR_THICKNESS_PARAM);
+                if (t <= 0 && tipo != null) t = LeerDouble(tipo, BuiltInParameter.FLOOR_ATTR_THICKNESS_PARAM);
+                return t;
+            }
+            if (e is Wall muro)
+            {
+                return muro.Width;
+            }
+            if (tipo != null)
+            {
+                double t = LeerDouble(tipo, BuiltInParameter.STRUCTURAL_FOUNDATION_THICKNESS);
+                if (t > 0) return t;
+            }
+            return 0;
         }
 
         private Material ObtenerMaterialEstructural(Element e)
@@ -257,10 +280,86 @@ namespace ExportacionMetrados.Core.Metrado
                 }
             }
 
-            if (_opciones.IncluirAcero && barras.Count == 0)
+            // Mallas electrosoldadas (habituales en losas)
+            var mallas = new FilteredElementCollector(_doc).OfClass(typeof(FabricSheet)).ToElements();
+            foreach (Element elemento in mallas)
             {
-                resultado.Advertencias.Add("El modelo no contiene barras de refuerzo (Rebar).");
+                try
+                {
+                    var malla = (FabricSheet)elemento;
+                    Element host = malla.HostId != ElementId.InvalidElementId ? _doc.GetElement(malla.HostId) : null;
+                    if (host?.Category == null) continue;
+                    if (!mapaCategorias.TryGetValue(host.Category.Id, out string nombreCategoria)) continue;
+
+                    BarraAcero medida = MedirMalla(malla, host, nombreCategoria);
+                    if (medida != null) resultado.Acero.Add(medida);
+                }
+                catch (Exception ex)
+                {
+                    resultado.Advertencias.Add($"Malla Id {elemento.Id}: {ex.Message}");
+                }
             }
+
+            if (_opciones.IncluirAcero && barras.Count == 0 && mallas.Count == 0)
+            {
+                resultado.Advertencias.Add("El modelo no contiene barras de refuerzo ni mallas electrosoldadas.");
+            }
+        }
+
+        /// <summary>
+        /// Mide una malla electrosoldada: usa la masa de la hoja cortada que calcula
+        /// Revit a partir del tipo de malla (masa por m²) y del área cortada.
+        /// </summary>
+        private BarraAcero MedirMalla(FabricSheet malla, Element host, string nombreCategoria)
+        {
+            var tipoMalla = _doc.GetElement(malla.GetTypeId()) as FabricSheetType;
+
+            double largoPies = LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_CUT_OVERALL_LENGTH);
+            double anchoPies = LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_CUT_OVERALL_WIDTH);
+            if (largoPies <= 0) largoPies = LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_TOTAL_LENGTH);
+            if (anchoPies <= 0) anchoPies = LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_TOTAL_WIDTH);
+
+            double largoM = AMetros(largoPies);
+            double anchoM = AMetros(anchoPies);
+            double areaM2 = largoM * anchoM;
+
+            // Masa de la hoja cortada (kg). Revit la calcula como masa unitaria × área cortada.
+            double masaKg = AKilogramos(LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_CUT_SHEET_MASS));
+            string fuente = "Masa de hoja cortada";
+
+            if (masaKg <= 0)
+            {
+                masaKg = AKilogramos(LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_SHEET_MASS));
+                fuente = "Masa de hoja";
+            }
+            if (masaKg <= 0 && tipoMalla != null)
+            {
+                // Masa unitaria del tipo (kg/m²) × área
+                double masaUnit = LeerDouble(tipoMalla, BuiltInParameter.FABRIC_SHEET_MASSUNIT);
+                masaKg = AKilogramosPorM2(masaUnit) * areaM2;
+                fuente = "Masa unitaria × área";
+            }
+
+            Level nivel = ObtenerNivel(host);
+
+            return new BarraAcero
+            {
+                Id = malla.Id,
+                HostId = host.Id,
+                CategoriaHost = nombreCategoria,
+                Nivel = nivel?.Name ?? "(sin nivel)",
+                ElevacionNivel = nivel?.Elevation ?? double.MinValue,
+                TipoBarra = "Malla: " + (tipoMalla?.Name ?? malla.Name),
+                DiametroMm = 0,
+                Cantidad = 1,
+                LongitudUnaBarraM = largoM,
+                LongitudTotalM = largoM,
+                AreaM2 = areaM2,
+                PesoKg = masaKg,
+                FuenteLongitud = fuente,
+                Particion = LeerTexto(malla, BuiltInParameter.NUMBER_PARTITION_PARAM),
+                EsMalla = true,
+            };
         }
 
         private BarraAcero MedirBarra(Element barra, Element host, string nombreCategoria)
@@ -435,6 +534,9 @@ namespace ExportacionMetrados.Core.Metrado
         }
 
         private static double AMetros(double pies) => UnitUtils.ConvertFromInternalUnits(pies, UnitTypeId.Meters);
+        private static double AMetrosCuadrados(double pies2) => UnitUtils.ConvertFromInternalUnits(pies2, UnitTypeId.SquareMeters);
+        private static double AKilogramos(double interno) => UnitUtils.ConvertFromInternalUnits(interno, UnitTypeId.Kilograms);
+        private static double AKilogramosPorM2(double interno) => UnitUtils.ConvertFromInternalUnits(interno, UnitTypeId.KilogramsPerSquareMeter);
         private static double AMilimetros(double pies) => UnitUtils.ConvertFromInternalUnits(pies, UnitTypeId.Millimeters);
         private static double AMetrosCubicos(double pies3) => UnitUtils.ConvertFromInternalUnits(pies3, UnitTypeId.CubicMeters);
     }

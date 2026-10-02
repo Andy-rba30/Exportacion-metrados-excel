@@ -24,7 +24,7 @@ namespace ExportacionMetrados.Core.Metrado
             new CategoriaMetrado(BuiltInCategory.OST_StructuralFraming,    "Vigas",         true),
             new CategoriaMetrado(BuiltInCategory.OST_StructuralColumns,    "Columnas",      true),
             new CategoriaMetrado(BuiltInCategory.OST_StructuralFoundation, "Cimentaciones", false),
-            new CategoriaMetrado(BuiltInCategory.OST_Floors,               "Losas",         false),
+            new CategoriaMetrado(BuiltInCategory.OST_Floors,               "Losas",         true),
             new CategoriaMetrado(BuiltInCategory.OST_Walls,                "Muros",         false),
         };
     }
@@ -62,6 +62,10 @@ namespace ExportacionMetrados.Core.Metrado
         public string Material { get; set; }
         /// <summary>Longitud (vigas) o altura (columnas) en metros.</summary>
         public double LongitudM { get; set; }
+        /// <summary>Área (losas, muros, cimentaciones) en m².</summary>
+        public double AreaM2 { get; set; }
+        /// <summary>Espesor (losas, muros) en metros.</summary>
+        public double EspesorM { get; set; }
         public double VolumenM3 { get; set; }
     }
 
@@ -85,6 +89,10 @@ namespace ExportacionMetrados.Core.Metrado
         public string FuenteLongitud { get; set; }
         public double PesoKg { get; set; }
         public string Particion { get; set; }
+        /// <summary>True si es una malla electrosoldada (FabricSheet) en lugar de barras.</summary>
+        public bool EsMalla { get; set; }
+        /// <summary>Área de la malla en m² (solo mallas).</summary>
+        public double AreaM2 { get; set; }
     }
 
     public class ResultadoMetrado

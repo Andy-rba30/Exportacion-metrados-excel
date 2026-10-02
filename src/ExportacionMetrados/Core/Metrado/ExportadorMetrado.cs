@@ -124,7 +124,8 @@ namespace ExportacionMetrados.Core.Metrado
                 int p = fila;
                 foreach (var g in r.Acero.GroupBy(a => Math.Round(a.DiametroMm, 2)).OrderBy(g => g.Key))
                 {
-                    Numero(hoja.Cell(fila, 1), g.Key, "0.##");
+                    if (g.Key > 0) Numero(hoja.Cell(fila, 1), g.Key, "0.##");
+                    else hoja.Cell(fila, 1).Value = "Malla";
                     Numero(hoja.Cell(fila, 2), g.Sum(a => a.LongitudTotalM), FormatoM);
                     Numero(hoja.Cell(fila, 3), g.Sum(a => a.PesoKg), FormatoKg);
                     fila++;
@@ -159,17 +160,18 @@ namespace ExportacionMetrados.Core.Metrado
         private void EscribirConcreto(IXLWorksheet hoja, ResultadoMetrado r, List<string> categorias)
         {
             int fila = 1;
-            Titulo(hoja, fila++, 7, "METRADO DE CONCRETO");
+            const int nCol = 9;
+            Titulo(hoja, fila++, nCol, "METRADO DE CONCRETO");
             fila++;
 
-            string[] columnas = { "Elemento", "Nivel", "Tipo", "Material", "Cantidad", "Longitud / altura (m)", "Volumen (m³)" };
+            string[] columnas = { "Elemento", "Nivel", "Tipo", "Material", "Cantidad", "Longitud / altura (m)", "Área (m²)", "Espesor (m)", "Volumen (m³)" };
             var filasSubtotal = new List<int>();
 
             foreach (string cat in categorias)
             {
                 var elementos = r.Concreto.Where(c => c.Categoria == cat).ToList();
 
-                Subtitulo(hoja, fila++, 7, cat.ToUpperInvariant());
+                Subtitulo(hoja, fila++, nCol, cat.ToUpperInvariant());
                 Encabezado(hoja, fila++, columnas);
 
                 if (elementos.Count == 0)
@@ -199,7 +201,11 @@ namespace ExportacionMetrados.Core.Metrado
                         hoja.Cell(fila, 4).Value = tipo.Key.Material;
                         Numero(hoja.Cell(fila, 5), tipo.Count(), FormatoEntero);
                         Numero(hoja.Cell(fila, 6), tipo.Sum(e => e.LongitudM), FormatoM);
-                        Numero(hoja.Cell(fila, 7), tipo.Sum(e => e.VolumenM3), FormatoM3);
+                        Numero(hoja.Cell(fila, 7), tipo.Sum(e => e.AreaM2), FormatoM);
+                        // El espesor es propio del tipo, no se suma: se muestra el del grupo.
+                        double espesor = tipo.Max(e => e.EspesorM);
+                        if (espesor > 0) Numero(hoja.Cell(fila, 8), espesor, FormatoM3);
+                        Numero(hoja.Cell(fila, 9), tipo.Sum(e => e.VolumenM3), FormatoM3);
                         fila++;
                     }
                 }
@@ -209,11 +215,13 @@ namespace ExportacionMetrados.Core.Metrado
                 hoja.Cell(fila, 5).FormulaA1 = $"SUM(E{primera}:E{ultima})";
                 hoja.Cell(fila, 6).FormulaA1 = $"SUM(F{primera}:F{ultima})";
                 hoja.Cell(fila, 7).FormulaA1 = $"SUM(G{primera}:G{ultima})";
+                hoja.Cell(fila, 9).FormulaA1 = $"SUM(I{primera}:I{ultima})";
                 hoja.Cell(fila, 5).Style.NumberFormat.Format = FormatoEntero;
                 hoja.Cell(fila, 6).Style.NumberFormat.Format = FormatoM;
-                hoja.Cell(fila, 7).Style.NumberFormat.Format = FormatoM3;
-                FilaResaltada(hoja, fila, 7, ColorSubtotal, true);
-                Bordes(hoja.Range(primera - 1, 1, fila, 7));
+                hoja.Cell(fila, 7).Style.NumberFormat.Format = FormatoM;
+                hoja.Cell(fila, 9).Style.NumberFormat.Format = FormatoM3;
+                FilaResaltada(hoja, fila, nCol, ColorSubtotal, true);
+                Bordes(hoja.Range(primera - 1, 1, fila, nCol));
                 filasSubtotal.Add(fila);
                 fila += 2;
             }
@@ -221,13 +229,13 @@ namespace ExportacionMetrados.Core.Metrado
             if (filasSubtotal.Count > 0)
             {
                 hoja.Cell(fila, 1).Value = "TOTAL CONCRETO";
-                hoja.Cell(fila, 7).FormulaA1 = string.Join("+", filasSubtotal.Select(f => $"G{f}"));
-                hoja.Cell(fila, 7).Style.NumberFormat.Format = FormatoM3;
-                FilaResaltada(hoja, fila, 7, ColorTotal, true);
-                Bordes(hoja.Range(fila, 1, fila, 7));
+                hoja.Cell(fila, 9).FormulaA1 = string.Join("+", filasSubtotal.Select(f => $"I{f}"));
+                hoja.Cell(fila, 9).Style.NumberFormat.Format = FormatoM3;
+                FilaResaltada(hoja, fila, nCol, ColorTotal, true);
+                Bordes(hoja.Range(fila, 1, fila, nCol));
             }
 
-            AjustarColumnas(hoja, 7);
+            AjustarColumnas(hoja, nCol);
         }
 
         // ------------------------------------------------------------------
@@ -276,7 +284,8 @@ namespace ExportacionMetrados.Core.Metrado
                         hoja.Cell(fila, 1).Value = cat;
                         hoja.Cell(fila, 2).Value = nivel.Key.Nivel;
                         hoja.Cell(fila, 3).Value = d.Key.TipoBarra;
-                        Numero(hoja.Cell(fila, 4), d.Key.Diametro, "0.##");
+                        if (d.Key.Diametro > 0) Numero(hoja.Cell(fila, 4), d.Key.Diametro, "0.##");
+                        else hoja.Cell(fila, 4).Value = "Malla";
                         Numero(hoja.Cell(fila, 5), d.Sum(a => a.Cantidad), FormatoEntero);
                         Numero(hoja.Cell(fila, 6), d.Sum(a => a.LongitudTotalM), FormatoM);
                         Numero(hoja.Cell(fila, 7), d.Sum(a => a.PesoKg), FormatoKg);
@@ -319,7 +328,7 @@ namespace ExportacionMetrados.Core.Metrado
         private static void EscribirDetalleConcreto(IXLWorksheet hoja, ResultadoMetrado r)
         {
             int fila = 1;
-            Encabezado(hoja, fila++, "Id", "Elemento", "Nivel", "Familia", "Tipo", "Marca", "Material", "Longitud / altura (m)", "Volumen (m³)");
+            Encabezado(hoja, fila++, "Id", "Elemento", "Nivel", "Familia", "Tipo", "Marca", "Material", "Longitud / altura (m)", "Área (m²)", "Espesor (m)", "Volumen (m³)");
 
             foreach (var e in r.Concreto
                 .OrderBy(c => c.Categoria).ThenBy(c => c.ElevacionNivel).ThenBy(c => c.Familia).ThenBy(c => c.Tipo))
@@ -332,25 +341,27 @@ namespace ExportacionMetrados.Core.Metrado
                 hoja.Cell(fila, 6).SetValue(e.Marca ?? string.Empty);
                 hoja.Cell(fila, 7).Value = e.Material;
                 Numero(hoja.Cell(fila, 8), e.LongitudM, FormatoM);
-                Numero(hoja.Cell(fila, 9), e.VolumenM3, FormatoM3);
+                Numero(hoja.Cell(fila, 9), e.AreaM2, FormatoM);
+                if (e.EspesorM > 0) Numero(hoja.Cell(fila, 10), e.EspesorM, FormatoM3);
+                Numero(hoja.Cell(fila, 11), e.VolumenM3, FormatoM3);
                 fila++;
             }
 
             if (fila > 2)
             {
-                var rango = hoja.Range(1, 1, fila - 1, 9);
+                var rango = hoja.Range(1, 1, fila - 1, 11);
                 rango.SetAutoFilter();
                 Bordes(rango);
             }
             hoja.SheetView.FreezeRows(1);
-            AjustarColumnas(hoja, 9);
+            AjustarColumnas(hoja, 11);
         }
 
         private static void EscribirDetalleAcero(IXLWorksheet hoja, ResultadoMetrado r)
         {
             int fila = 1;
             Encabezado(hoja, fila++, "Id", "Id anfitrión", "Elemento", "Nivel", "Partición", "Tipo de barra", "Diámetro (mm)",
-                "N° barras", "Longitud por barra (m)", "Longitud total (m)", "Peso (kg)", "Origen de la longitud");
+                "N° barras", "Longitud por barra (m)", "Longitud total (m)", "Área malla (m²)", "Peso (kg)", "Origen de la longitud");
 
             foreach (var a in r.Acero
                 .OrderBy(x => x.CategoriaHost).ThenBy(x => x.ElevacionNivel).ThenBy(x => x.DiametroMm))
@@ -361,23 +372,25 @@ namespace ExportacionMetrados.Core.Metrado
                 hoja.Cell(fila, 4).Value = a.Nivel;
                 hoja.Cell(fila, 5).SetValue(a.Particion ?? string.Empty);
                 hoja.Cell(fila, 6).Value = a.TipoBarra;
-                Numero(hoja.Cell(fila, 7), a.DiametroMm, "0.##");
+                if (a.EsMalla) hoja.Cell(fila, 7).Value = "Malla";
+                else Numero(hoja.Cell(fila, 7), a.DiametroMm, "0.##");
                 Numero(hoja.Cell(fila, 8), a.Cantidad, FormatoEntero);
                 Numero(hoja.Cell(fila, 9), a.LongitudUnaBarraM, FormatoM);
                 Numero(hoja.Cell(fila, 10), a.LongitudTotalM, FormatoM);
-                Numero(hoja.Cell(fila, 11), a.PesoKg, FormatoKg);
-                hoja.Cell(fila, 12).SetValue(a.FuenteLongitud ?? string.Empty);
+                if (a.EsMalla) Numero(hoja.Cell(fila, 11), a.AreaM2, FormatoM);
+                Numero(hoja.Cell(fila, 12), a.PesoKg, FormatoKg);
+                hoja.Cell(fila, 13).SetValue(a.FuenteLongitud ?? string.Empty);
                 fila++;
             }
 
             if (fila > 2)
             {
-                var rango = hoja.Range(1, 1, fila - 1, 12);
+                var rango = hoja.Range(1, 1, fila - 1, 13);
                 rango.SetAutoFilter();
                 Bordes(rango);
             }
             hoja.SheetView.FreezeRows(1);
-            AjustarColumnas(hoja, 12);
+            AjustarColumnas(hoja, 13);
         }
 
         // ------------------------------------------------------------------

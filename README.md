@@ -114,8 +114,11 @@ Los subtotales y totales se escriben como fórmulas de Excel, así que se recalc
 
 **Qué se mide y cómo**
 
-- Categorías disponibles: Vigas (Structural Framing), Columnas (Structural Columns), Cimentaciones, Losas y Muros.
-  Por defecto solo Vigas y Columnas están marcadas.
+- Categorías disponibles: Vigas (Structural Framing), Columnas (Structural Columns), Losas (Floors),
+  Cimentaciones y Muros. Por defecto están marcadas Vigas, Columnas y Losas.
+- Para losas, muros y cimentaciones la hoja de concreto muestra además el área (m²) y el espesor (m).
+  Las losas arquitectónicas con material que no sea concreto quedan fuera si está activada la opción
+  "Solo material de concreto".
 - Volumen de concreto: se suma el volumen de cada material del elemento (`GetMaterialVolume`) que sea de
   concreto. Un material se reconoce como concreto si su clase o nombre contiene "concreto", "hormigón",
   "concrete" o "f'c", o si su activo estructural es de clase Concrete. En losas y muros compuestos esto
@@ -133,8 +136,10 @@ Los subtotales y totales se escriben como fórmulas de Excel, así que se recalc
   `longitud × π·d²/4 × densidad` (7850 kg/m³ por defecto, editable). Si el tipo de barra tiene un parámetro
   numérico llamado "Peso unitario", "Peso por metro", "Bar Weight", "Unit Weight" o "Weight per Length"
   (en kg/m) se usa ese valor en lugar de la fórmula.
-- Las mallas electrosoldadas (Fabric Sheet) y el refuerzo por área/trayectoria sin barras generadas no se
-  cuentan.
+- Mallas electrosoldadas (Fabric Sheet), habituales en losas: se cuentan con la masa de la hoja cortada que
+  calcula Revit (masa unitaria del tipo de malla × área cortada). Aparecen en la hoja de acero con el
+  diámetro "Malla", su área en m² y su peso en kg.
+- El refuerzo por área y por trayectoria se cuenta a través de las barras que genera (`RebarInSystem`).
 
 ## Notas técnicas
 
