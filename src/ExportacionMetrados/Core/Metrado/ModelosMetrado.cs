@@ -56,6 +56,12 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>Nombre del parámetro del tipo de barra con el peso por metro (kg/m).</summary>
         public string NombreParametroPeso { get; set; } = "Bar Mass per Unit Length";
 
+        /// <summary>
+        /// Densidad del acero al carbono (kg/m³), el material de los perfiles estructurales.
+        /// Se usa para pesar los perfiles metálicos: longitud × área de sección × densidad.
+        /// </summary>
+        public double DensidadAceroEstructural { get; set; } = 7850.0;
+
         /// <summary>Si ya existen tablas con el mismo nombre, borrarlas y crearlas de nuevo.</summary>
         public bool RegenerarTablasExistentes { get; set; } = false;
 
@@ -113,6 +119,35 @@ namespace ExportacionMetrados.Core.Metrado
         public double VolumenM3 { get; set; }
     }
 
+    /// <summary>
+    /// Un perfil metálico (viga o columna de acero estructural) ya medido. Los
+    /// perfiles no se metran por volumen sino por peso:
+    /// peso = longitud × área de la sección × densidad.
+    /// </summary>
+    public class ElementoAceroEstructural
+    {
+        public ElementId Id { get; set; }
+        public string Categoria { get; set; }
+        public string Nivel { get; set; }
+        public double ElevacionNivel { get; set; }
+        public string Familia { get; set; }
+        public string Tipo { get; set; }
+        public string Marca { get; set; }
+        public string Material { get; set; }
+        /// <summary>Longitud del perfil en metros.</summary>
+        public double LongitudM { get; set; }
+        /// <summary>Área de la sección transversal en cm².</summary>
+        public double AreaSeccionCm2 { get; set; }
+        /// <summary>De dónde se obtuvo el área de la sección (parámetro del tipo, sección de la familia, volumen/longitud).</summary>
+        public string FuenteArea { get; set; }
+        /// <summary>Densidad del acero al carbono usada, en kg/m³.</summary>
+        public double DensidadKgM3 { get; set; }
+        /// <summary>Peso en kg = longitud × área de sección × densidad.</summary>
+        public double PesoKg { get; set; }
+        /// <summary>Volumen que informa Revit (m³), solo como referencia.</summary>
+        public double VolumenM3 { get; set; }
+    }
+
     /// <summary>Un conjunto de barras de refuerzo ya medido.</summary>
     public class BarraAcero
     {
@@ -142,6 +177,8 @@ namespace ExportacionMetrados.Core.Metrado
     public class ResultadoMetrado
     {
         public List<ElementoConcreto> Concreto { get; } = new List<ElementoConcreto>();
+        /// <summary>Perfiles metálicos pesados por longitud × área de sección × densidad.</summary>
+        public List<ElementoAceroEstructural> AceroEstructural { get; } = new List<ElementoAceroEstructural>();
         public List<BarraAcero> Acero { get; } = new List<BarraAcero>();
         public List<string> Advertencias { get; } = new List<string>();
         public int ElementosOmitidosPorMaterial { get; set; }

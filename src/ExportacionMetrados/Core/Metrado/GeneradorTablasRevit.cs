@@ -9,7 +9,7 @@ namespace ExportacionMetrados.Core.Metrado
     /// Crea (o reutiliza) las tablas de planificación de metrado dentro del
     /// proyecto de Revit:
     ///   - "Metrado concreto - {elemento}"          elementos con material de concreto
-    ///   - "Metrado acero estructural - {elemento}" perfiles metálicos (si los hay)
+    ///   - "Metrado acero estructural - {elemento}" perfiles metálicos por peso (si los hay)
     ///   - "Metrado acero - {elemento}"             refuerzo cuyo anfitrión es de esa categoría
     ///   - "Metrado acero - General"                todo el refuerzo, por partición y elemento
     /// Todos los métodos deben llamarse dentro de una transacción abierta.
@@ -205,14 +205,39 @@ namespace ExportacionMetrados.Core.Metrado
 
             ScheduleField longitud = Agregar(def, campos, "Longitud",
                 BuiltInParameter.INSTANCE_LENGTH_PARAM, BuiltInParameter.CURVE_ELEM_LENGTH);
-            ScheduleField area = Agregar(def, campos, "Área", BuiltInParameter.HOST_AREA_COMPUTED);
-            ScheduleField espesor = Agregar(def, campos, "Espesor",
-                BuiltInParameter.FLOOR_ATTR_THICKNESS_PARAM,
-                BuiltInParameter.WALL_ATTR_WIDTH_PARAM,
-                BuiltInParameter.STRUCTURAL_FOUNDATION_THICKNESS);
-            ScheduleField volumen = Agregar(def, campos, "Volumen", BuiltInParameter.HOST_VOLUME_COMPUTED);
 
-            Totales(longitud, area, volumen);
+            if (concreto)
+            {
+                ScheduleField area = Agregar(def, campos, "Área", BuiltInParameter.HOST_AREA_COMPUTED);
+                Agregar(def, campos, "Espesor",
+                    BuiltInParameter.FLOOR_ATTR_THICKNESS_PARAM,
+                    BuiltInParameter.WALL_ATTR_WIDTH_PARAM,
+                    BuiltInParameter.STRUCTURAL_FOUNDATION_THICKNESS);
+                ScheduleField volumen = Agregar(def, campos, "Volumen", BuiltInParameter.HOST_VOLUME_COMPUTED);
+                Totales(longitud, area, volumen);
+            }
+            else
+            {
+                // Los perfiles metálicos no se metran por volumen sino por peso:
+                // longitud × área de sección × densidad, que el plugin escribe en "Metrado - Peso (kg)".
+                ScheduleField areaSeccion = Agregar(def, campos, "Área de sección", BuiltInParameter.STRUCTURAL_SECTION_AREA)
+                    ?? AgregarPorNombre(def, campos, "Área de sección", new string[0],
+                        new[] { "Section Area", "Área de sección", "Area de seccion" });
+                ScheduleField peso = AgregarPorNombre(def, campos, "Peso (kg)",
+                    new string[0], new[] { ClasificadorElementos.NombreParametroPeso });
+                Totales(longitud, peso);
+
+                if (areaSeccion == null)
+                {
+                    Advertencias.Add($"Acero estructural {cat.Nombre}: la categoría no expone el área de sección en tablas; " +
+                                     "la tabla solo muestra longitud y peso.");
+                }
+                if (peso == null)
+                {
+                    Advertencias.Add($"Acero estructural {cat.Nombre}: no se encontró el parámetro \"" +
+                                     ClasificadorElementos.NombreParametroPeso + "\"; la tabla no incluye la columna de peso.");
+                }
+            }
 
             if (nivel != null)
             {

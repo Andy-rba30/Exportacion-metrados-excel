@@ -47,11 +47,18 @@ namespace ExportacionMetrados.Core.Metrado
             return AsegurarParametro(doc, NombreParametroMaterial, GuidParametroMaterial, true, categorias, advertencias);
         }
 
-        /// <summary>Crea y vincula "Metrado - Peso (kg)" a la categoría de armadura estructural.</summary>
+        /// <summary>
+        /// Crea y vincula "Metrado - Peso (kg)" a las armaduras (peso del refuerzo) y a
+        /// vigas y columnas (peso de los perfiles metálicos).
+        /// </summary>
         public static bool AsegurarParametroPeso(Document doc, List<string> advertencias)
         {
             return AsegurarParametro(doc, NombreParametroPeso, GuidParametroPeso, false,
-                new[] { BuiltInCategory.OST_Rebar, BuiltInCategory.OST_FabricReinforcement }, advertencias);
+                new[]
+                {
+                    BuiltInCategory.OST_Rebar, BuiltInCategory.OST_FabricReinforcement,
+                    BuiltInCategory.OST_StructuralFraming, BuiltInCategory.OST_StructuralColumns,
+                }, advertencias);
         }
 
         private static bool AsegurarParametro(Document doc, string nombre, Guid guid, bool esTexto,
@@ -157,7 +164,8 @@ namespace ExportacionMetrados.Core.Metrado
                     GUID = guid,
                     Description = esTexto
                         ? "Clasificación automática para el metrado: CONCRETO, ACERO ESTRUCTURAL, MADERA u OTRO."
-                        : "Peso del acero de refuerzo en kg calculado por el plugin (longitud total × kg/m).",
+                        : "Peso en kg calculado por el plugin: armaduras = longitud total × kg/m; " +
+                          "perfiles metálicos = longitud × área de sección × densidad del acero al carbono.",
                     UserModifiable = true,
                     Visible = true,
                 };
@@ -297,16 +305,31 @@ namespace ExportacionMetrados.Core.Metrado
         /// </summary>
         public static int RellenarPesos(Document doc, IEnumerable<BarraAcero> barras, List<string> advertencias)
         {
+            return EscribirPesos(doc, barras.Select(b => new KeyValuePair<ElementId, double>(b.Id, b.PesoKg)), "de la armadura", advertencias);
+        }
+
+        /// <summary>
+        /// Escribe "Metrado - Peso (kg)" en cada perfil metálico (longitud × área de
+        /// sección × densidad). Devuelve el número de perfiles actualizados.
+        /// </summary>
+        public static int RellenarPesosPerfiles(Document doc, IEnumerable<ElementoAceroEstructural> perfiles, List<string> advertencias)
+        {
+            return EscribirPesos(doc, perfiles.Select(p => new KeyValuePair<ElementId, double>(p.Id, p.PesoKg)), "del perfil", advertencias);
+        }
+
+        private static int EscribirPesos(Document doc, IEnumerable<KeyValuePair<ElementId, double>> pesos, string descripcion,
+            List<string> advertencias)
+        {
             int n = 0;
-            foreach (BarraAcero b in barras)
+            foreach (KeyValuePair<ElementId, double> par in pesos)
             {
                 try
                 {
-                    Element e = doc.GetElement(b.Id);
+                    Element e = doc.GetElement(par.Key);
                     Parameter p = e?.LookupParameter(NombreParametroPeso);
                     if (p == null || p.IsReadOnly || p.StorageType != StorageType.Double) continue;
 
-                    double valor = Math.Round(b.PesoKg, 3);
+                    double valor = Math.Round(par.Value, 3);
                     if (Math.Abs(p.AsDouble() - valor) > 0.0005)
                     {
                         p.Set(valor);
@@ -315,7 +338,7 @@ namespace ExportacionMetrados.Core.Metrado
                 }
                 catch (Exception ex)
                 {
-                    advertencias.Add($"No se pudo escribir el peso de la armadura {b.Id}: {ex.Message}");
+                    advertencias.Add($"No se pudo escribir el peso {descripcion} {par.Key}: {ex.Message}");
                 }
             }
             return n;

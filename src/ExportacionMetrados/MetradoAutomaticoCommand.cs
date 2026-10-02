@@ -49,7 +49,7 @@ namespace ExportacionMetrados
                 ResultadoMetrado resultado = new CalculadorMetrado(doc, opciones).Calcular();
                 advertencias.AddRange(resultado.Advertencias);
 
-                int clasificados = 0, particionados = 0, pesados = 0;
+                int clasificados = 0, particionados = 0, pesados = 0, perfilesPesados = 0;
                 using (var t = new Transaction(doc, "Metrado automático"))
                 {
                     t.Start();
@@ -69,11 +69,14 @@ namespace ExportacionMetrados
                             opciones.Categorias, opciones.SobrescribirParticiones, null, advertencias);
                     }
 
-                    // 1c. Peso en kg de cada armadura (longitud total × kg/m).
-                    if (opciones.IncluirAcero && ClasificadorElementos.AsegurarParametroPeso(doc, advertencias))
+                    // 1c. Peso en kg: armaduras (longitud total × kg/m) y perfiles metálicos
+                    //     (longitud × área de sección × densidad del acero al carbono).
+                    bool necesitaPeso = opciones.IncluirAcero || opciones.TablasAceroEstructural || resultado.AceroEstructural.Count > 0;
+                    if (necesitaPeso && ClasificadorElementos.AsegurarParametroPeso(doc, advertencias))
                     {
                         doc.Regenerate();
-                        pesados = ClasificadorElementos.RellenarPesos(doc, resultado.Acero, advertencias);
+                        if (opciones.IncluirAcero) pesados = ClasificadorElementos.RellenarPesos(doc, resultado.Acero, advertencias);
+                        perfilesPesados = ClasificadorElementos.RellenarPesosPerfiles(doc, resultado.AceroEstructural, advertencias);
                     }
 
                     // 1d. Tablas.
@@ -97,7 +100,7 @@ namespace ExportacionMetrados
                     catch (Exception) { /* no es crítico */ }
                 }
 
-                MostrarResumen(generador, tablas, resultado, opciones, advertencias, clasificados, particionados, pesados);
+                MostrarResumen(generador, tablas, resultado, opciones, advertencias, clasificados, particionados, pesados, perfilesPesados);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -116,19 +119,23 @@ namespace ExportacionMetrados
         }
 
         private static void MostrarResumen(GeneradorTablasRevit generador, List<ViewSchedule> tablas,
-            ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias, int clasificados, int particionados, int pesados)
+            ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias, int clasificados, int particionados,
+            int pesados, int perfilesPesados)
         {
             double m3 = resultado.Concreto.Sum(c => c.VolumenM3);
             double kg = resultado.Acero.Sum(a => a.PesoKg);
+            double kgPerfiles = resultado.AceroEstructural.Sum(a => a.PesoKg);
 
             string contenido =
                 $"Tablas creadas en Revit: {generador.TablasCreadas.Count}\n" +
                 $"Tablas existentes reutilizadas: {generador.TablasReutilizadas.Count}\n" +
                 $"Elementos clasificados (Metrado - Material): {clasificados}\n" +
                 $"Refuerzos con partición asignada: {particionados}\n" +
-                $"Refuerzos con peso actualizado: {pesados}\n\n" +
+                $"Refuerzos con peso actualizado: {pesados}\n" +
+                $"Perfiles metálicos con peso actualizado: {perfilesPesados}\n\n" +
                 $"Concreto: {resultado.Concreto.Count} elementos, {m3:N3} m³\n" +
-                $"Acero: {resultado.Acero.Count} conjuntos de barras, {kg:N2} kg\n";
+                $"Acero estructural: {resultado.AceroEstructural.Count} perfiles, {kgPerfiles:N2} kg\n" +
+                $"Acero de refuerzo: {resultado.Acero.Count} conjuntos de barras, {kg:N2} kg\n";
 
             if (opciones.ExportarExcel)
             {

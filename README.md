@@ -10,8 +10,9 @@ Plugin para Autodesk Revit, escrito en C#, que exporta las **tablas de planifica
   (por ejemplo `12.50 m²` queda como `12.5` con formato `#,##0.00 "m²"`), para que se puedan sumar
   y usar en fórmulas.
 - Ventana de selección con buscador, selección múltiple y opciones de formato.
-- Botón **Metrado automático**: calcula el concreto (m³) y el acero de refuerzo (kg) de vigas, columnas y
-  otros elementos estructurales leyendo directamente el modelo, sin necesitar tablas de planificación.
+- Botón **Metrado automático**: calcula el concreto (m³), los perfiles metálicos (kg, por longitud × área de
+  sección × densidad) y el acero de refuerzo (kg) de vigas, columnas y otros elementos estructurales leyendo
+  directamente el modelo, sin necesitar tablas de planificación.
 - Compatible con Revit 2021 a 2024 (.NET Framework 4.8), 2025 y 2026 (.NET 8) y 2027+ (.NET 10).
 
 ## Estructura
@@ -28,8 +29,10 @@ src/ExportacionMetrados/
 │   ├── ExportadorExcel.cs         Escribe el .xlsx con ClosedXML
 │   ├── OpcionesExportacion.cs     Opciones y resultado de la exportación
 │   └── Metrado/
-│       ├── CalculadorMetrado.cs   Recorre el modelo: volúmenes de concreto y barras de acero
-│       ├── ExportadorMetrado.cs   Escribe las hojas Resumen, Concreto, Acero y detalle
+│       ├── CalculadorMetrado.cs   Recorre el modelo: volúmenes de concreto, peso de perfiles y barras de acero
+│       ├── ClasificadorElementos.cs Parámetros "Metrado - Material" y "Metrado - Peso (kg)", particiones
+│       ├── GeneradorTablasRevit.cs Crea las tablas de planificación de metrado en el proyecto
+│       ├── ExportadorMetrado.cs   Escribe las hojas Resumen, Concreto, Acero estructural, Acero y detalle
 │       └── ModelosMetrado.cs      Opciones, categorías y resultados del metrado
 ├── UI/
 │   ├── SeleccionTablasWindow.xaml Ventana de selección de tablas
@@ -122,7 +125,7 @@ función aparte para tablas que ya existen en el proyecto.)
 |---|---|---|
 | `Metrado concreto - Vigas` | Elemento (familia y tipo), Material, Cantidad, Longitud, Volumen. Solo elementos con material de concreto. | Por tipo; total general. **Sin niveles** (una viga puede cruzar varios). |
 | `Metrado concreto - Columnas` / `Losas` / `Cimentaciones` / `Muros` | Nivel, Elemento, Material, Cantidad, Longitud o Área, Espesor, Volumen | Por nivel (encabezado y pie con totales), luego tipo; total general |
-| `Metrado acero estructural - <elemento>` | Igual que la anterior pero con los elementos cuyo material **no** es concreto (perfiles metálicos, madera...). Solo se crea si existen. | Igual |
+| `Metrado acero estructural - <elemento>` | Elementos cuyo material **no** es concreto (perfiles metálicos): Elemento, Material, Cantidad, Longitud, Área de sección, **Peso (kg)**. Los perfiles no se metran por volumen sino por peso. Solo se crea si existen. | Igual |
 | `Metrado acero - <elemento>` | Refuerzo con partición `VIGAS`, `COLUMNAS`, etc.: Partición, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario, Peso (kg) | Por partición (encabezado y pie con totales), luego tipo de barra; total general |
 | `Metrado acero - General` | Todo el refuerzo del modelo, mismas columnas | Por partición, luego tipo de barra; total general |
 
@@ -140,10 +143,18 @@ función aparte para tablas que ya existen en el proyecto.)
   Las tablas de acero por elemento filtran por ese texto. Las particiones que ya tienen texto se respetan
   salvo que marque "Sobrescribir".
 - **Peso del acero**: Revit no permite crear valores calculados desde la API, así que el plugin crea el
-  parámetro de proyecto **"Metrado - Peso (kg)"** en las armaduras y lo rellena en cada ejecución con
-  `Longitud total × peso por metro` (el peso por metro sale del parámetro del tipo de barra, por defecto
-  `Bar Mass per Unit Length`, o de π·d²/4 × densidad si no existe). Las tablas muestran esa columna con
-  totales. Si modifica armaduras después, vuelva a ejecutar el metrado para actualizar los pesos.
+  parámetro de proyecto **"Metrado - Peso (kg)"** en las armaduras, vigas y columnas y lo rellena en cada
+  ejecución. En las armaduras vale `Longitud total × peso por metro` (el peso por metro sale del parámetro
+  del tipo de barra, por defecto `Bar Mass per Unit Length`, o de π·d²/4 × densidad si no existe). Las
+  tablas muestran esa columna con totales. Si modifica armaduras después, vuelva a ejecutar el metrado
+  para actualizar los pesos.
+- **Peso de los perfiles metálicos**: las vigas y columnas clasificadas como `ACERO ESTRUCTURAL` no se
+  metran por volumen sino por peso: `Longitud × área de sección × densidad`. El área de sección se lee del
+  parámetro **Área de sección** del tipo (perfiles con sección estructural: W, HSS, IPE, C, L...), de la
+  definición de sección estructural de la familia o de un parámetro de área con nombre habitual; como
+  último recurso se usa `Volumen / longitud`. La densidad es la del **acero al carbono**, material de los
+  perfiles estructurales: 7850 kg/m³ por defecto, ajustable en la ventana. El resultado se escribe en
+  "Metrado - Peso (kg)" de cada perfil y la tabla `Metrado acero estructural - <elemento>` lo suma.
 - Si ya existe una tabla con el mismo nombre se reutiliza tal cual. La opción "Regenerar" la borra y la
   crea de nuevo (se pierden columnas añadidas a mano y su colocación en planos). Tras actualizar el plugin
   conviene regenerar una vez para obtener la nueva estructura.
@@ -152,9 +163,9 @@ función aparte para tablas que ya existen en el proyecto.)
 
 | Hoja | Contenido |
 |---|---|
-| Resumen | Concreto (m³), acero (kg) y cuantía (kg/m³) por tipo de elemento y acero total por diámetro, calculados directamente del modelo. |
+| Resumen | Concreto (m³), acero (kg) y cuantía (kg/m³) por tipo de elemento, perfiles metálicos (longitud y kg por tipo de elemento) y acero total por diámetro, calculados directamente del modelo. |
 | Una hoja por tabla de Revit | El contenido de cada tabla generada, tal como se ve en Revit (incluidas las columnas que haya añadido a mano). |
-| Concreto - Detalle / Acero - Detalle | Opcional. Una fila por elemento o conjunto de barras con Id, nivel, tipo, longitudes, área, espesor, volumen y peso. |
+| Concreto - Detalle / Acero estructural - Detalle / Acero - Detalle | Opcional. Una fila por elemento, perfil o conjunto de barras con Id, nivel, tipo, longitudes, área, espesor, volumen, área de sección, densidad y peso. |
 
 **Cómo calcula el resumen** (independiente de las tablas, leyendo el modelo):
 
@@ -162,6 +173,8 @@ función aparte para tablas que ya existen en el proyecto.)
   "concreto", "hormigón", "concrete", "f'c", o activo estructural de clase Concrete). En losas y muros
   compuestos excluye acabados y otras capas. Si el elemento no tiene materiales asignados se usa el
   material estructural y el parámetro Volumen.
+- Perfiles metálicos: vigas y columnas clasificadas como `ACERO ESTRUCTURAL`. Peso = longitud × área de
+  sección × densidad del acero al carbono (7850 kg/m³ por defecto). No entran en el volumen de concreto.
 - Nivel: nivel de referencia (vigas), nivel base (columnas, muros) o el nivel del elemento.
 - Acero: barras (`Rebar`), refuerzo por área y trayectoria (`RebarInSystem`) y mallas electrosoldadas
   (`FabricSheet`) cuyo anfitrión pertenece a las categorías marcadas. La longitud se toma del parámetro

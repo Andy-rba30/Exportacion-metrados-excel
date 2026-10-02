@@ -64,6 +64,13 @@ namespace ExportacionMetrados.UI
             string ruta = TxtRuta.Text?.Trim();
             double densidad = 7850;
 
+            string textoDensidadPerfiles = TxtDensidadPerfiles.Text?.Trim().Replace(',', '.');
+            if (!double.TryParse(textoDensidadPerfiles, NumberStyles.Float, CultureInfo.InvariantCulture, out double densidadPerfiles) || densidadPerfiles <= 0)
+            {
+                MessageBox.Show(this, "La densidad del acero al carbono debe ser un número mayor que cero.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             if (exportarExcel)
             {
                 if (string.IsNullOrEmpty(ruta))
@@ -105,6 +112,7 @@ namespace ExportacionMetrados.UI
             _opciones.TablasAceroPorElemento = ChkAcero.IsChecked == true;
             _opciones.TablaAceroGeneral = ChkAceroGeneral.IsChecked == true;
             _opciones.TablasAceroEstructural = ChkAceroEstructural.IsChecked == true;
+            _opciones.DensidadAceroEstructural = densidadPerfiles;
             _opciones.ConservarClasificacionMaterial = ChkConservarMaterial.IsChecked == true;
             _opciones.RellenarParticiones = ChkParticiones.IsChecked == true;
             _opciones.SobrescribirParticiones = ChkSobrescribirParticiones.IsChecked == true;

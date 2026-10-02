@@ -43,7 +43,12 @@
 
         <GroupBox Header="Tablas en Revit">
             <StackPanel>
-                <CheckBox x:Name="ChkAceroEstructural" Content="Separar en tablas aparte los elementos metálicos (acero estructural)" IsChecked="True" />
+                <CheckBox x:Name="ChkAceroEstructural" Content="Separar en tablas aparte los elementos metálicos (acero estructural), metrados por peso" IsChecked="True" />
+                <DockPanel Margin="20,3,0,3">
+                    <TextBlock Text="Densidad del acero al carbono de los perfiles (kg/m³):" VerticalAlignment="Center" />
+                    <TextBox x:Name="TxtDensidadPerfiles" Text="7850" Width="70" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalContentAlignment="Center"
+                             ToolTip="Peso del perfil = longitud × área de sección × densidad. Se escribe en el parámetro &quot;Metrado - Peso (kg)&quot; de cada viga o columna metálica." />
+                </DockPanel>
                 <CheckBox x:Name="ChkConservarMaterial" Content="Conservar la clasificación &quot;Metrado - Material&quot; ya escrita en los elementos" IsChecked="False" />
                 <CheckBox x:Name="ChkParticiones" Content="Rellenar la partición vacía del acero según el elemento anfitrión (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS)" IsChecked="True" />
                 <CheckBox x:Name="ChkSobrescribirParticiones" Content="Sobrescribir también las particiones que ya tengan texto" IsChecked="False" Margin="20,3,0,3" />

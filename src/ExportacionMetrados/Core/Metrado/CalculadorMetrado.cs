@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
+using Autodesk.Revit.DB.Structure.StructuralSections;
 
 namespace ExportacionMetrados.Core.Metrado
 {
     /// <summary>
-    /// Recorre el modelo y calcula volúmenes de concreto y pesos de acero
-    /// directamente desde los elementos, sin necesidad de tablas de planificación.
+    /// Recorre el modelo y calcula volúmenes de concreto, pesos de perfiles
+    /// metálicos y pesos de acero de refuerzo directamente desde los elementos,
+    /// sin necesidad de tablas de planificación.
     /// </summary>
     public class CalculadorMetrado
     {
@@ -16,6 +18,12 @@ namespace ExportacionMetrados.Core.Metrado
         private readonly OpcionesMetrado _opciones;
         private readonly Dictionary<ElementId, bool> _cacheMaterialConcreto = new Dictionary<ElementId, bool>();
         private readonly Dictionary<ElementId, Level> _cacheNiveles = new Dictionary<ElementId, Level>();
+
+        /// <summary>Nombres habituales de un parámetro de área de sección en familias propias de perfiles.</summary>
+        private static readonly string[] NombresParametroAreaSeccion =
+        {
+            "Section Area", "Área de sección", "Area de seccion", "Área de la sección", "Área sección", "Area", "Área", "A",
+        };
 
         private static readonly string[] PalabrasConcreto = { "concret", "hormig", "f'c", "f´c", "fc=", "fc " };
         /// <summary>Nombres habituales del parámetro de peso por metro en los tipos de barra.</summary>
@@ -78,6 +86,14 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 try
                 {
+                    // Los perfiles metálicos no se metran por volumen sino por peso.
+                    if (cat.PuedeSerMetalica && EsAceroEstructural(e))
+                    {
+                        ElementoAceroEstructural perfil = MedirPerfilMetalico(e, cat.Nombre, resultado);
+                        if (perfil != null) resultado.AceroEstructural.Add(perfil);
+                        continue;
+                    }
+
                     ElementoConcreto medido = MedirElementoConcreto(e, cat.Nombre);
                     if (medido != null)
                     {
@@ -261,7 +277,152 @@ namespace ExportacionMetrados.Core.Metrado
         }
 
         // ------------------------------------------------------------------
-        // Acero
+        // Acero estructural (perfiles metálicos)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// True si el elemento está (o quedará) clasificado como ACERO ESTRUCTURAL en
+        /// "Metrado - Material": se respeta el valor ya escrito si se pidió conservarlo;
+        /// si no, se clasifica igual que lo hará el plugin al rellenar el parámetro.
+        /// </summary>
+        private bool EsAceroEstructural(Element e)
+        {
+            if (_opciones.ConservarClasificacionMaterial)
+            {
+                string actual = null;
+                try { actual = e.LookupParameter(ClasificadorElementos.NombreParametroMaterial)?.AsString(); } catch { }
+                if (!string.IsNullOrWhiteSpace(actual))
+                {
+                    return string.Equals(actual.Trim(), ClasificadorElementos.ValorAceroEstructural, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            return ClasificadorElementos.Clasificar(_doc, e) == ClasificadorElementos.ValorAceroEstructural;
+        }
+
+        /// <summary>
+        /// Mide un perfil metálico: peso = longitud × área de la sección × densidad.
+        /// Devuelve null (con advertencia) si no hay longitud ni área de sección.
+        /// </summary>
+        private ElementoAceroEstructural MedirPerfilMetalico(Element e, string nombreCategoria, ResultadoMetrado resultado)
+        {
+            var tipo = _doc.GetElement(e.GetTypeId()) as ElementType;
+            double longitudM = AMetros(ObtenerLongitud(e));
+            if (longitudM <= 0)
+            {
+                resultado.Advertencias.Add($"{nombreCategoria} Id {e.Id}: perfil metálico sin longitud; no se pudo calcular su peso.");
+                return null;
+            }
+
+            double volumenM3 = AMetrosCubicos(LeerDouble(e, BuiltInParameter.HOST_VOLUME_COMPUTED));
+            double areaM2 = ObtenerAreaSeccion(e, tipo, out string fuenteArea);
+            if (areaM2 <= 0 && volumenM3 > 0)
+            {
+                // Último recurso: la sección media que resulta del volumen que informa Revit.
+                areaM2 = volumenM3 / longitudM;
+                fuenteArea = "Volumen / longitud";
+            }
+            if (areaM2 <= 0)
+            {
+                resultado.Advertencias.Add(
+                    $"{nombreCategoria} Id {e.Id}: el tipo \"{tipo?.Name ?? e.Name}\" no tiene área de sección; no se pudo calcular su peso.");
+                return null;
+            }
+
+            // Los perfiles estructurales son de acero al carbono: densidad única (7850 kg/m³ por defecto).
+            Material material = ObtenerMaterialEstructural(e);
+            double densidad = _opciones.DensidadAceroEstructural;
+            Level nivel = ObtenerNivel(e);
+
+            return new ElementoAceroEstructural
+            {
+                Id = e.Id,
+                Categoria = nombreCategoria,
+                Nivel = nivel?.Name ?? "(sin nivel)",
+                ElevacionNivel = nivel?.Elevation ?? double.MinValue,
+                Familia = tipo?.FamilyName ?? e.Category?.Name ?? string.Empty,
+                Tipo = tipo?.Name ?? e.Name,
+                Marca = LeerTexto(e, BuiltInParameter.ALL_MODEL_MARK),
+                Material = material?.Name ?? "(sin material)",
+                LongitudM = longitudM,
+                AreaSeccionCm2 = areaM2 * 10000.0,
+                FuenteArea = fuenteArea,
+                DensidadKgM3 = densidad,
+                PesoKg = longitudM * areaM2 * densidad,
+                VolumenM3 = volumenM3,
+            };
+        }
+
+        /// <summary>
+        /// Área de la sección transversal del perfil en m². Se busca, en orden: el
+        /// parámetro "Área de sección" del tipo (perfiles con sección estructural),
+        /// la definición de sección estructural de la familia, y un parámetro con
+        /// nombre habitual en familias propias.
+        /// </summary>
+        private static double ObtenerAreaSeccion(Element e, ElementType tipo, out string fuente)
+        {
+            double area = tipo != null ? LeerDouble(tipo, BuiltInParameter.STRUCTURAL_SECTION_AREA) : 0;
+            if (area <= 0) area = LeerDouble(e, BuiltInParameter.STRUCTURAL_SECTION_AREA);
+            if (area > 0)
+            {
+                fuente = "Área de sección del tipo";
+                return AMetrosCuadrados(area);
+            }
+
+            if (tipo is FamilySymbol simbolo)
+            {
+                try
+                {
+                    StructuralSection seccion = simbolo.GetStructuralSection();
+                    if (seccion != null && seccion.SectionArea > 0)
+                    {
+                        fuente = "Sección estructural de la familia";
+                        return AMetrosCuadrados(seccion.SectionArea);
+                    }
+                }
+                catch (Exception)
+                {
+                    // La familia no define sección estructural.
+                }
+            }
+
+            foreach (Element portador in new[] { (Element)tipo, e })
+            {
+                if (portador == null) continue;
+                foreach (string nombre in NombresParametroAreaSeccion)
+                {
+                    Parameter p = portador.LookupParameter(nombre);
+                    if (p != null && p.StorageType == StorageType.Double && p.HasValue && p.AsDouble() > 0 && EsParametroDeArea(p))
+                    {
+                        fuente = "Parámetro \"" + nombre + "\"";
+                        return AMetrosCuadrados(p.AsDouble());
+                    }
+                }
+            }
+
+            fuente = null;
+            return 0;
+        }
+
+        /// <summary>True si el parámetro es de disciplina área (evita confundir "A" con otra magnitud).</summary>
+        private static bool EsParametroDeArea(Parameter p)
+        {
+            try
+            {
+#if REVIT2021
+                ForgeTypeId espec = p.Definition.GetSpecTypeId();
+#else
+                ForgeTypeId espec = p.Definition.GetDataType();
+#endif
+                return espec != null && espec.Equals(SpecTypeId.Area);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Acero de refuerzo
         // ------------------------------------------------------------------
 
         private void CalcularAcero(List<CategoriaMetrado> categorias, ResultadoMetrado resultado)
