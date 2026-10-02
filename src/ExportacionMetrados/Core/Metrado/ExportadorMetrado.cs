@@ -349,7 +349,8 @@ namespace ExportacionMetrados.Core.Metrado
         private static void EscribirDetalleAcero(IXLWorksheet hoja, ResultadoMetrado r)
         {
             int fila = 1;
-            Encabezado(hoja, fila++, "Id", "Id anfitrión", "Elemento", "Nivel", "Partición", "Tipo de barra", "Diámetro (mm)", "N° barras", "Longitud (m)", "Peso (kg)");
+            Encabezado(hoja, fila++, "Id", "Id anfitrión", "Elemento", "Nivel", "Partición", "Tipo de barra", "Diámetro (mm)",
+                "N° barras", "Longitud por barra (m)", "Longitud total (m)", "Peso (kg)", "Origen de la longitud");
 
             foreach (var a in r.Acero
                 .OrderBy(x => x.CategoriaHost).ThenBy(x => x.ElevacionNivel).ThenBy(x => x.DiametroMm))
@@ -362,19 +363,21 @@ namespace ExportacionMetrados.Core.Metrado
                 hoja.Cell(fila, 6).Value = a.TipoBarra;
                 Numero(hoja.Cell(fila, 7), a.DiametroMm, "0.##");
                 Numero(hoja.Cell(fila, 8), a.Cantidad, FormatoEntero);
-                Numero(hoja.Cell(fila, 9), a.LongitudTotalM, FormatoM);
-                Numero(hoja.Cell(fila, 10), a.PesoKg, FormatoKg);
+                Numero(hoja.Cell(fila, 9), a.LongitudUnaBarraM, FormatoM);
+                Numero(hoja.Cell(fila, 10), a.LongitudTotalM, FormatoM);
+                Numero(hoja.Cell(fila, 11), a.PesoKg, FormatoKg);
+                hoja.Cell(fila, 12).SetValue(a.FuenteLongitud ?? string.Empty);
                 fila++;
             }
 
             if (fila > 2)
             {
-                var rango = hoja.Range(1, 1, fila - 1, 10);
+                var rango = hoja.Range(1, 1, fila - 1, 12);
                 rango.SetAutoFilter();
                 Bordes(rango);
             }
             hoja.SheetView.FreezeRows(1);
-            AjustarColumnas(hoja, 10);
+            AjustarColumnas(hoja, 12);
         }
 
         // ------------------------------------------------------------------

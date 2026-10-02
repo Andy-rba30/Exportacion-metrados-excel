@@ -77,7 +77,12 @@ namespace ExportacionMetrados.Core.Metrado
         public string TipoBarra { get; set; }
         public double DiametroMm { get; set; }
         public int Cantidad { get; set; }
+        /// <summary>Longitud de una sola pieza del conjunto (parámetro "Longitud de barra").</summary>
+        public double LongitudUnaBarraM { get; set; }
+        /// <summary>Longitud de todas las piezas del conjunto (parámetro "Longitud total de barra").</summary>
         public double LongitudTotalM { get; set; }
+        /// <summary>De dónde se obtuvo la longitud total (parámetro o respaldo).</summary>
+        public string FuenteLongitud { get; set; }
         public double PesoKg { get; set; }
         public string Particion { get; set; }
     }

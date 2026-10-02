@@ -278,16 +278,31 @@ namespace ExportacionMetrados.Core.Metrado
                 }
             }
 
-            double longitudTotalPies = LeerDouble(barra, BuiltInParameter.REBAR_ELEM_TOTAL_LENGTH);
             int cantidad = (int)Math.Round(LeerDouble(barra, BuiltInParameter.REBAR_ELEM_QUANTITY_OF_BARS));
             if (cantidad <= 0 && barra is Rebar rb) cantidad = rb.NumberOfBarPositions;
             if (cantidad <= 0) cantidad = 1;
 
+            // "Longitud de barra" (REBAR_ELEM_LENGTH) es la de UNA pieza del conjunto.
+            // Para el metrado se necesita "Longitud total de barra"
+            // (REBAR_ELEM_TOTAL_LENGTH): suma de todas las piezas, con ganchos y
+            // dobleces, y correcta en conjuntos de longitud variable.
+            double longitudUnaBarraPies = LeerDouble(barra, BuiltInParameter.REBAR_ELEM_LENGTH);
+            double longitudTotalPies = LeerDouble(barra, BuiltInParameter.REBAR_ELEM_TOTAL_LENGTH);
+            string fuenteLongitud = "Longitud total de barra";
+
+            if (longitudTotalPies <= 0 && barra is Rebar rebar)
+            {
+                // Respaldo 1: longitud geométrica del eje de cada posición de barra
+                // (incluye ganchos y radios de doblado).
+                longitudTotalPies = LongitudGeometrica(rebar);
+                fuenteLongitud = "Geometría del eje";
+            }
+
             if (longitudTotalPies <= 0)
             {
-                // Longitud de una barra × cantidad como respaldo
-                double unaBarra = LeerDouble(barra, BuiltInParameter.REBAR_ELEM_LENGTH);
-                longitudTotalPies = unaBarra * cantidad;
+                // Respaldo 2: longitud de una pieza × cantidad.
+                longitudTotalPies = longitudUnaBarraPies * cantidad;
+                fuenteLongitud = "Longitud de barra × cantidad";
             }
 
             double longitudM = AMetros(longitudTotalPies);
@@ -308,10 +323,42 @@ namespace ExportacionMetrados.Core.Metrado
                 TipoBarra = tipoBarra?.Name ?? barra.Name,
                 DiametroMm = diametroMm,
                 Cantidad = cantidad,
+                LongitudUnaBarraM = AMetros(longitudUnaBarraPies),
                 LongitudTotalM = longitudM,
+                FuenteLongitud = fuenteLongitud,
                 PesoKg = pesoKg,
                 Particion = LeerTexto(barra, BuiltInParameter.NUMBER_PARTITION_PARAM),
             };
+        }
+
+        /// <summary>
+        /// Suma la longitud del eje de todas las posiciones de barra del conjunto.
+        /// Se usa solo si el parámetro "Longitud total de barra" no está disponible.
+        /// </summary>
+        private static double LongitudGeometrica(Rebar rebar)
+        {
+            double total = 0;
+            int posiciones = Math.Max(1, rebar.NumberOfBarPositions);
+            for (int i = 0; i < posiciones; i++)
+            {
+                if (!rebar.IncludeFirstBar && i == 0) continue;
+                if (!rebar.IncludeLastBar && i == posiciones - 1) continue;
+                try
+                {
+                    IList<Curve> curvas = rebar.GetCenterlineCurves(
+                        adjustForSelfIntersection: false,
+                        suppressHooks: false,
+                        suppressBendRadius: false,
+                        multiplanarOption: MultiplanarOption.IncludeAllMultiplanarCurves,
+                        barPositionIndex: i);
+                    foreach (Curve c in curvas) total += c.Length;
+                }
+                catch (Autodesk.Revit.Exceptions.ApplicationException)
+                {
+                    // Posición no válida: se ignora.
+                }
+            }
+            return total;
         }
 
         /// <summary>

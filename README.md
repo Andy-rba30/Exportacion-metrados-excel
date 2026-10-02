@@ -125,7 +125,11 @@ Los subtotales y totales se escriben como fórmulas de Excel, así que se recalc
   elementos sin material se incluyen igualmente y se avisa.
 - Nivel: nivel de referencia (vigas), nivel base (columnas, muros) o el nivel del elemento.
 - Acero: se leen las barras (`Rebar` y `RebarInSystem`) cuyo anfitrión pertenece a las categorías marcadas.
-  Se usan los parámetros Longitud total de barra y Cantidad. El peso se calcula como
+  La longitud se toma del parámetro **Longitud total de barra** (`Total Bar Length`), que suma todas las
+  piezas del conjunto con sus ganchos y dobleces, y no del parámetro **Longitud de barra** (`Bar Length`),
+  que es la de una sola pieza. Si el parámetro total no está disponible se calcula la longitud geométrica
+  del eje de cada posición de barra y, como último recurso, longitud de barra × cantidad. La hoja
+  "Acero - Detalle" muestra ambas longitudes y el origen usado. El peso se calcula como
   `longitud × π·d²/4 × densidad` (7850 kg/m³ por defecto, editable). Si el tipo de barra tiene un parámetro
   numérico llamado "Peso unitario", "Peso por metro", "Bar Weight", "Unit Weight" o "Weight per Length"
   (en kg/m) se usa ese valor en lugar de la fórmula.
