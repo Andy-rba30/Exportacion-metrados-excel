@@ -25,6 +25,19 @@ namespace ExportacionMetrados.UI
         public string TextoPersonalizado { get; private set; }
         public bool Sobrescribir { get; private set; }
 
+        private void RbTexto_Changed(object sender, RoutedEventArgs e)
+        {
+            if (TxtPersonalizada == null) return;
+            bool propio = RbPersonalizada.IsChecked == true;
+            TxtPersonalizada.IsEnabled = propio;
+            if (propio) TxtPersonalizada.Focus();
+        }
+
+        private void TxtPersonalizada_GotFocus(object sender, RoutedEventArgs e)
+        {
+            RbPersonalizada.IsChecked = true;
+        }
+
         private void BtnAsignar_Click(object sender, RoutedEventArgs e)
         {
             if (RbPersonalizada.IsChecked == true && string.IsNullOrWhiteSpace(TxtPersonalizada.Text))

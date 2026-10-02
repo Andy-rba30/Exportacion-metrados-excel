@@ -22,18 +22,18 @@
 
         <GroupBox Header="Aplicar a" Padding="8,4">
             <StackPanel>
-                <RadioButton x:Name="RbSeleccion" Content="La selección actual (elementos anfitriones y/o armaduras)" IsChecked="True" />
-                <RadioButton x:Name="RbElegir" Content="Elegir elementos en pantalla ahora" />
-                <RadioButton x:Name="RbTodo" Content="Todo el modelo" />
+                <RadioButton x:Name="RbSeleccion" GroupName="AplicarA" Content="La selección actual (elementos anfitriones y/o armaduras)" IsChecked="True" />
+                <RadioButton x:Name="RbElegir" GroupName="AplicarA" Content="Elegir elementos en pantalla ahora" />
+                <RadioButton x:Name="RbTodo" GroupName="AplicarA" Content="Todo el modelo" />
             </StackPanel>
         </GroupBox>
 
         <GroupBox Header="Texto de la partición" Padding="8,4" Margin="0,8,0,0">
             <StackPanel>
-                <RadioButton x:Name="RbAutomatica" Content="Según la categoría del anfitrión: VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS" IsChecked="True" />
+                <RadioButton x:Name="RbAutomatica" GroupName="Texto" Content="Según la categoría del anfitrión: VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS" IsChecked="True" />
                 <DockPanel>
-                    <RadioButton x:Name="RbPersonalizada" Content="Texto propio:" VerticalAlignment="Center" />
-                    <TextBox x:Name="TxtPersonalizada" Margin="8,0,0,0" VerticalContentAlignment="Center" />
+                    <RadioButton x:Name="RbPersonalizada" GroupName="Texto" Content="Texto propio:" VerticalAlignment="Center" Checked="RbTexto_Changed" Unchecked="RbTexto_Changed" />
+                    <TextBox x:Name="TxtPersonalizada" Margin="8,0,0,0" VerticalContentAlignment="Center" IsEnabled="False" GotFocus="TxtPersonalizada_GotFocus" />
                 </DockPanel>
                 <CheckBox x:Name="ChkSobrescribir" Content="Sobrescribir las particiones que ya tengan texto" IsChecked="True" Margin="0,8,0,0" />
             </StackPanel>
