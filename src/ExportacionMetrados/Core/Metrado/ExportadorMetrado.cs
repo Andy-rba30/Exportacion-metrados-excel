@@ -123,6 +123,17 @@ namespace ExportacionMetrados.Core.Metrado
                 fila++;
             }
 
+            // Acero alojado en elementos de categorías no marcadas (p. ej. muros).
+            foreach (var g in r.Acero.Where(a => !categorias.Contains(a.CategoriaHost))
+                                     .GroupBy(a => a.CategoriaHost).OrderBy(g => g.Key))
+            {
+                hoja.Cell(fila, 1).Value = g.Key + " (solo acero)";
+                Numero(hoja.Cell(fila, 2), 0, FormatoM3);
+                Numero(hoja.Cell(fila, 3), g.Sum(a => a.PesoKg), FormatoKg);
+                Numero(hoja.Cell(fila, 5), 0, FormatoEntero);
+                fila++;
+            }
+
             int ultima = fila - 1;
             hoja.Cell(fila, 1).Value = "TOTAL";
             hoja.Cell(fila, 2).FormulaA1 = $"SUM(B{primera}:B{ultima})";

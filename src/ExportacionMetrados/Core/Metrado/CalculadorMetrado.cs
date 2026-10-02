@@ -266,7 +266,9 @@ namespace ExportacionMetrados.Core.Metrado
 
         private void CalcularAcero(List<CategoriaMetrado> categorias, ResultadoMetrado resultado)
         {
-            var mapaCategorias = categorias.ToDictionary(c => new ElementId(c.Categoria), c => c.Nombre);
+            // El acero se mide en TODAS las armaduras del modelo (el peso se escribe
+            // en cada una); las categorías marcadas solo ordenan el resumen.
+            var mapaCategorias = CategoriaMetrado.Predeterminadas().ToDictionary(c => new ElementId(c.Categoria), c => c.Nombre);
 
             var barras = new List<Element>();
             barras.AddRange(new FilteredElementCollector(_doc).OfClass(typeof(Rebar)).ToElements());
@@ -285,7 +287,7 @@ namespace ExportacionMetrados.Core.Metrado
 
                     if (!mapaCategorias.TryGetValue(host.Category.Id, out string nombreCategoria))
                     {
-                        continue; // el anfitrión no es de una categoría seleccionada
+                        nombreCategoria = host.Category.Name; // anfitrión de otra categoría
                     }
 
                     BarraAcero medida = MedirBarra(barra, host, nombreCategoria);
@@ -306,7 +308,10 @@ namespace ExportacionMetrados.Core.Metrado
                     var malla = (FabricSheet)elemento;
                     Element host = malla.HostId != ElementId.InvalidElementId ? _doc.GetElement(malla.HostId) : null;
                     if (host?.Category == null) continue;
-                    if (!mapaCategorias.TryGetValue(host.Category.Id, out string nombreCategoria)) continue;
+                    if (!mapaCategorias.TryGetValue(host.Category.Id, out string nombreCategoria))
+                    {
+                        nombreCategoria = host.Category.Name;
+                    }
 
                     BarraAcero medida = MedirMalla(malla, host, nombreCategoria);
                     if (medida != null) resultado.Acero.Add(medida);
