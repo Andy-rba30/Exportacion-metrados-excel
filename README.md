@@ -123,15 +123,22 @@ función aparte para tablas que ya existen en el proyecto.)
 | `Metrado concreto - Vigas` | Elemento (familia y tipo), Material, Cantidad, Longitud, Volumen. Solo elementos con material de concreto. | Por tipo; total general. **Sin niveles** (una viga puede cruzar varios). |
 | `Metrado concreto - Columnas` / `Losas` / `Cimentaciones` / `Muros` | Nivel, Elemento, Material, Cantidad, Longitud o Área, Espesor, Volumen | Por nivel (encabezado y pie con totales), luego tipo; total general |
 | `Metrado acero estructural - <elemento>` | Igual que la anterior pero con los elementos cuyo material **no** es concreto (perfiles metálicos, madera...). Solo se crea si existen. | Igual |
-| `Metrado acero - <elemento>` | Refuerzo cuyo anfitrión es de esa categoría: Partición, Elemento, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario | Por partición (si no hay, grupo en blanco), luego tipo de barra; total general |
+| `Metrado acero - <elemento>` | Refuerzo con partición `VIGAS`, `COLUMNAS`, etc.: Partición, Elemento, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario | Por partición, luego tipo de barra; total general |
 | `Metrado acero - General` | Todo el refuerzo del modelo | Partición → Elemento anfitrión → Tipo de barra, con subtotales en cada nivel |
 
 - Las tablas no están desglosadas por elemento (una fila por tipo). Si quiere ver cada elemento, active
   "Desglosar cada ejemplar" en la tabla.
-- **Separación concreto / metálico**: el plugin clasifica cada material estructural usado en la categoría
-  (por clase, nombre o activo estructural). Si el texto de la ventana ("Concreto" por defecto) distingue bien
-  los materiales del modelo se usa un filtro "Material contiene / no contiene"; si no, se excluyen los
-  materiales del otro grupo uno a uno (Revit admite hasta 8 filtros por tabla).
+- **Separación concreto / metálico**: el plugin crea el parámetro de proyecto **"Metrado - Material"**
+  (texto, de ejemplar) en vigas, columnas, losas, cimentaciones y muros, y lo rellena con `CONCRETO`,
+  `ACERO ESTRUCTURAL`, `MADERA` u `OTRO`. Para clasificar usa, en este orden: el "Material para
+  comportamiento del modelo" de la familia, los materiales del elemento, y el nombre de la familia o tipo
+  (perfiles HSS, W, C, L, IPE...). Las tablas de concreto filtran `= CONCRETO` y las de acero estructural
+  `≠ CONCRETO`. Si un elemento quedó mal clasificado, corrija el valor del parámetro en sus propiedades y
+  marque "Conservar la clasificación ya escrita" en la siguiente ejecución.
+- **Partición del acero**: antes de crear las tablas, el plugin escribe en la partición vacía de cada
+  armadura el nombre de la categoría de su anfitrión (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`).
+  Las tablas de acero por elemento filtran por ese texto. Las particiones que ya tienen texto se respetan
+  salvo que marque "Sobrescribir".
 - **Peso del acero**: la tabla incluye la columna con el parámetro de peso por metro del tipo de barra (por
   defecto `Bar Mass per Unit Length`, editable en la ventana). Revit no permite crear valores calculados
   desde la API, así que la columna "Peso total = Longitud total × Peso unitario" debe añadirse una sola vez
@@ -166,6 +173,18 @@ función aparte para tablas que ya existen en el proyecto.)
   en la ventana (`Bar Mass per Unit Length` por defecto; se respetan sus unidades si es de disciplina
   "masa por unidad de longitud"). Si el tipo no tiene ese parámetro se calcula como π·d²/4 × densidad
   (7850 kg/m³ por defecto). Las mallas usan la masa de hoja cortada que calcula Revit.
+
+## Asignar partición (tercer botón)
+
+Escribe el parámetro **Partición** del acero de refuerzo sin pasar por el metrado:
+
+- **A qué**: la selección actual (anfitriones y/o armaduras), elementos elegidos en pantalla, o todo el modelo.
+  Si selecciona una viga, se asigna a todas las armaduras alojadas en ella.
+- **Qué texto**: automático según la categoría del anfitrión (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`,
+  `MUROS`) o un texto propio, por ejemplo `VIGA V-101` o `BLOQUE A - COLUMNAS`.
+- Opción para sobrescribir o respetar las particiones que ya tengan texto.
+
+Las tablas de acero y la general se agrupan por este parámetro, así que basta con mantenerlo al día.
 
 ## Notas técnicas
 

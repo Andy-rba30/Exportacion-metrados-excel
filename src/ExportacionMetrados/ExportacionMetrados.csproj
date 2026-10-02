@@ -71,6 +71,8 @@
     <Resource Include="Resources\icono16.png" />
     <Resource Include="Resources\metrado32.png" />
     <Resource Include="Resources\metrado16.png" />
+    <Resource Include="Resources\particion32.png" />
+    <Resource Include="Resources\particion16.png" />
   </ItemGroup>
 
   <!--

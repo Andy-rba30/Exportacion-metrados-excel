@@ -8,24 +8,31 @@ namespace ExportacionMetrados.Core.Metrado
     /// </summary>
     public class CategoriaMetrado
     {
-        public CategoriaMetrado(BuiltInCategory categoria, string nombre, bool seleccionada)
+        public CategoriaMetrado(BuiltInCategory categoria, string nombre, string nombreParticion, bool seleccionada)
         {
             Categoria = categoria;
             Nombre = nombre;
+            NombreParticion = nombreParticion;
             Seleccionada = seleccionada;
         }
 
         public BuiltInCategory Categoria { get; }
         public string Nombre { get; }
+        /// <summary>Texto que se escribe en la partición del acero alojado en esta categoría.</summary>
+        public string NombreParticion { get; }
         public bool Seleccionada { get; set; }
+
+        /// <summary>True si la categoría admite elementos metálicos (perfiles).</summary>
+        public bool PuedeSerMetalica =>
+            Categoria == BuiltInCategory.OST_StructuralFraming || Categoria == BuiltInCategory.OST_StructuralColumns;
 
         public static List<CategoriaMetrado> Predeterminadas() => new List<CategoriaMetrado>
         {
-            new CategoriaMetrado(BuiltInCategory.OST_StructuralFraming,    "Vigas",         true),
-            new CategoriaMetrado(BuiltInCategory.OST_StructuralColumns,    "Columnas",      true),
-            new CategoriaMetrado(BuiltInCategory.OST_StructuralFoundation, "Cimentaciones", false),
-            new CategoriaMetrado(BuiltInCategory.OST_Floors,               "Losas",         true),
-            new CategoriaMetrado(BuiltInCategory.OST_Walls,                "Muros",         false),
+            new CategoriaMetrado(BuiltInCategory.OST_StructuralFraming,    "Vigas",         "VIGAS",     true),
+            new CategoriaMetrado(BuiltInCategory.OST_StructuralColumns,    "Columnas",      "COLUMNAS",  true),
+            new CategoriaMetrado(BuiltInCategory.OST_StructuralFoundation, "Cimentaciones", "CIMIENTOS", true),
+            new CategoriaMetrado(BuiltInCategory.OST_Floors,               "Losas",         "LOSAS",     true),
+            new CategoriaMetrado(BuiltInCategory.OST_Walls,                "Muros",         "MUROS",     false),
         };
     }
 
@@ -57,6 +64,15 @@ namespace ExportacionMetrados.Core.Metrado
 
         /// <summary>Texto del filtro de material en las tablas de Revit.</summary>
         public string TextoMaterialConcreto { get; set; } = "Concreto";
+
+        /// <summary>Rellenar la partición vacía del refuerzo con el nombre de la categoría del anfitrión.</summary>
+        public bool RellenarParticiones { get; set; } = true;
+
+        /// <summary>Sobrescribir también las particiones que ya tengan texto.</summary>
+        public bool SobrescribirParticiones { get; set; } = false;
+
+        /// <summary>Conservar la clasificación de material ya escrita en los elementos.</summary>
+        public bool ConservarClasificacionMaterial { get; set; } = false;
 
         /// <summary>Crear tablas aparte para los elementos de acero estructural (perfiles metálicos).</summary>
         public bool TablasAceroEstructural { get; set; } = true;

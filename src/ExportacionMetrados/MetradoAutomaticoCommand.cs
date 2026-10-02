@@ -45,9 +45,27 @@ namespace ExportacionMetrados
                 // 1. Tablas de planificación en Revit (requiere transacción).
                 List<ViewSchedule> tablas;
                 GeneradorTablasRevit generador;
+                int clasificados = 0, particionados = 0;
                 using (var t = new Transaction(doc, "Metrado automático"))
                 {
                     t.Start();
+
+                    // 1a. Parámetro "Metrado - Material" y clasificación concreto / metálico.
+                    var categoriasBic = opciones.Categorias.Where(c => c.Seleccionada).Select(c => c.Categoria).ToList();
+                    if (ClasificadorElementos.AsegurarParametroMaterial(doc, categoriasBic, advertencias))
+                    {
+                        doc.Regenerate();
+                        clasificados = ClasificadorElementos.RellenarMaterial(doc, categoriasBic, opciones.ConservarClasificacionMaterial, advertencias);
+                    }
+
+                    // 1b. Partición del refuerzo según la categoría del anfitrión.
+                    if (opciones.IncluirAcero && opciones.RellenarParticiones)
+                    {
+                        particionados = ClasificadorElementos.AsignarParticion(doc, ClasificadorElementos.TodoElRefuerzo(doc),
+                            opciones.Categorias, opciones.SobrescribirParticiones, null, advertencias);
+                    }
+
+                    // 1c. Tablas.
                     generador = new GeneradorTablasRevit(doc, opciones, uidoc.ActiveView?.Id);
                     tablas = generador.Generar();
                     t.Commit();
@@ -72,7 +90,7 @@ namespace ExportacionMetrados
                     catch (Exception) { /* no es crítico */ }
                 }
 
-                MostrarResumen(generador, tablas, resultado, opciones, advertencias);
+                MostrarResumen(generador, tablas, resultado, opciones, advertencias, clasificados, particionados);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -91,14 +109,16 @@ namespace ExportacionMetrados
         }
 
         private static void MostrarResumen(GeneradorTablasRevit generador, List<ViewSchedule> tablas,
-            ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias)
+            ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias, int clasificados, int particionados)
         {
             double m3 = resultado.Concreto.Sum(c => c.VolumenM3);
             double kg = resultado.Acero.Sum(a => a.PesoKg);
 
             string contenido =
                 $"Tablas creadas en Revit: {generador.TablasCreadas.Count}\n" +
-                $"Tablas existentes reutilizadas: {generador.TablasReutilizadas.Count}\n\n" +
+                $"Tablas existentes reutilizadas: {generador.TablasReutilizadas.Count}\n" +
+                $"Elementos clasificados (Metrado - Material): {clasificados}\n" +
+                $"Refuerzos con partición asignada: {particionados}\n\n" +
                 $"Concreto: {resultado.Concreto.Count} elementos, {m3:N3} m³\n" +
                 $"Acero: {resultado.Acero.Count} conjuntos de barras, {kg:N2} kg\n";
 

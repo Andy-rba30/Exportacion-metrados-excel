@@ -50,7 +50,7 @@ namespace ExportacionMetrados.Core.Metrado
                 ViewSchedule t = CrearOReutilizar(PrefijoConcreto + cat.Nombre, () => CrearTablaElementos(cat, mats, concreto: true));
                 if (t != null) tablas.Add(t);
 
-                if (_op.TablasAceroEstructural && mats.NoConcreto.Count > 0)
+                if (_op.TablasAceroEstructural && cat.PuedeSerMetalica && HayElementosNoConcreto(cat, mats))
                 {
                     ViewSchedule m = CrearOReutilizar(PrefijoAceroEstructural + cat.Nombre, () => CrearTablaElementos(cat, mats, concreto: false));
                     if (m != null) tablas.Add(m);
@@ -70,11 +70,11 @@ namespace ExportacionMetrados.Core.Metrado
 
                     if (!filtrada && TablasCreadas.Contains(t))
                     {
-                        // Sin filtro por anfitrión la tabla por categoría no tiene sentido.
+                        // Sin filtro la tabla por categoría no tiene sentido.
                         filtroDisponible = false;
                         _doc.Delete(t.Id);
                         TablasCreadas.Remove(t);
-                        Advertencias.Add("No fue posible filtrar el acero por categoría del anfitrión; " +
+                        Advertencias.Add("No fue posible filtrar el acero por partición ni por categoría del anfitrión; " +
                                          "solo se creó la tabla general de acero.");
                         continue;
                     }
@@ -229,9 +229,42 @@ namespace ExportacionMetrados.Core.Metrado
             def.ShowGrandTotalCount = true;
             def.GrandTotalTitle = (concreto ? "Total concreto " : "Total acero estructural ") + cat.Nombre;
 
-            if (material != null) AplicarFiltroMaterial(def, material, mats, concreto, cat.Nombre);
+            // Filtro principal: parámetro "Metrado - Material" (rellenado por el plugin).
+            ScheduleField clasificacion = AgregarPorNombre(def, campos, "Clasificación",
+                new string[0], new[] { ClasificadorElementos.NombreParametroMaterial });
+            bool filtrado = false;
+            if (clasificacion != null)
+            {
+                try
+                {
+                    def.AddFilter(new ScheduleFilter(clasificacion.FieldId,
+                        concreto ? ScheduleFilterType.Equal : ScheduleFilterType.NotEqual,
+                        ClasificadorElementos.ValorConcreto));
+                    clasificacion.IsHidden = true;
+                    filtrado = true;
+                }
+                catch (Exception ex)
+                {
+                    Advertencias.Add($"{cat.Nombre}: no se pudo filtrar por \"{ClasificadorElementos.NombreParametroMaterial}\" ({ex.Message}).");
+                }
+            }
+
+            // Respaldo: filtros sobre el material estructural.
+            if (!filtrado && material != null) AplicarFiltroMaterial(def, material, mats, concreto, cat.Nombre);
 
             return vs;
+        }
+
+        private bool HayElementosNoConcreto(CategoriaMetrado cat, MaterialesCategoria mats)
+        {
+            if (mats.NoConcreto.Count > 0) return true;
+            var elementos = new FilteredElementCollector(_doc).OfCategory(cat.Categoria).WhereElementIsNotElementType().ToElements();
+            foreach (Element e in elementos)
+            {
+                string v = e.LookupParameter(ClasificadorElementos.NombreParametroMaterial)?.AsString();
+                if (!string.IsNullOrEmpty(v) && v != ClasificadorElementos.ValorConcreto) return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -349,9 +382,23 @@ namespace ExportacionMetrados.Core.Metrado
             def.ShowGrandTotalTitle = true;
             def.GrandTotalTitle = cat == null ? "Total acero" : "Total acero " + cat.Nombre;
 
-            if (cat != null && hostCategoria != null)
+            if (cat != null)
             {
-                filtrada = FiltrarPorCategoriaAnfitrion(def, hostCategoria, cat);
+                // Partición = nombre de la categoría (el plugin la rellena). Es un campo
+                // de texto, así que el filtro es fiable; si falla, por categoría del anfitrión.
+                if (particion != null && _op.RellenarParticiones)
+                {
+                    try
+                    {
+                        def.AddFilter(new ScheduleFilter(particion.FieldId, ScheduleFilterType.Equal, cat.NombreParticion));
+                        filtrada = true;
+                    }
+                    catch (Exception) { }
+                }
+                if (!filtrada && hostCategoria != null)
+                {
+                    filtrada = FiltrarPorCategoriaAnfitrion(def, hostCategoria, cat);
+                }
             }
 
             if (pesoUnitario == null && cat == null)

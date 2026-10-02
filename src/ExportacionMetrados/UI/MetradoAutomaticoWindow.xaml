@@ -44,13 +44,16 @@
         <GroupBox Header="Tablas en Revit">
             <StackPanel>
                 <CheckBox x:Name="ChkAceroEstructural" Content="Separar en tablas aparte los elementos metálicos (acero estructural)" IsChecked="True" />
+                <CheckBox x:Name="ChkConservarMaterial" Content="Conservar la clasificación &quot;Metrado - Material&quot; ya escrita en los elementos" IsChecked="False" />
+                <CheckBox x:Name="ChkParticiones" Content="Rellenar la partición vacía del acero según el elemento anfitrión (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS)" IsChecked="True" />
+                <CheckBox x:Name="ChkSobrescribirParticiones" Content="Sobrescribir también las particiones que ya tengan texto" IsChecked="False" Margin="20,3,0,3" />
                 <CheckBox x:Name="ChkAcero" Content="Crear las tablas de acero de refuerzo por elemento" IsChecked="True" />
                 <CheckBox x:Name="ChkAceroGeneral" Content="Crear además una tabla general de acero de refuerzo (partición → elemento → tipo)" IsChecked="True" />
                 <CheckBox x:Name="ChkRegenerar" IsChecked="False">
                     <TextBlock TextWrapping="Wrap" Text="Regenerar las tablas que ya existan (se borran y se crean de nuevo; se pierden columnas añadidas a mano y su ubicación en planos)" />
                 </CheckBox>
                 <DockPanel Margin="0,3">
-                    <CheckBox x:Name="ChkFiltrarMaterial" Content="Texto que identifica los materiales de concreto:" IsChecked="True" VerticalAlignment="Center" />
+                    <CheckBox x:Name="ChkFiltrarMaterial" Content="Respaldo: texto que identifica los materiales de concreto:" IsChecked="True" VerticalAlignment="Center" />
                     <TextBox x:Name="TxtMaterial" Text="Concreto" Width="140" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalContentAlignment="Center" />
                 </DockPanel>
                 <DockPanel Margin="0,3">

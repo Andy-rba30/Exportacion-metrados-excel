@@ -79,8 +79,22 @@ namespace ExportacionMetrados
                 Image = CargarIcono("metrado16.png"),
             };
 
+            var datosParticion = new PushButtonData(
+                "AsignarParticion",
+                "Asignar\npartición",
+                rutaEnsamblado,
+                typeof(AsignarParticionCommand).FullName)
+            {
+                ToolTip = "Escribe la partición del acero de refuerzo (VIGAS, COLUMNAS, CIMIENTOS, LOSAS...) a la selección, por lotes o a todo el modelo.",
+                LongDescription = "Seleccione elementos anfitriones o armaduras y el plugin rellena su parámetro Partición con el nombre " +
+                                  "de la categoría del anfitrión o con un texto propio. Así las tablas de acero se agrupan correctamente.",
+                LargeImage = CargarIcono("particion32.png"),
+                Image = CargarIcono("particion16.png"),
+            };
+
             panel.AddItem(datosBoton);
             panel.AddItem(datosMetrado);
+            panel.AddItem(datosParticion);
         }
 
         private static BitmapImage CargarIcono(string nombre)
