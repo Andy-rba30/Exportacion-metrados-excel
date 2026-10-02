@@ -117,6 +117,7 @@ namespace ExportacionMetrados.UI
             _opciones.RellenarParticiones = ChkParticiones.IsChecked == true;
             _opciones.SobrescribirParticiones = ChkSobrescribirParticiones.IsChecked == true;
             _opciones.RegenerarTablasExistentes = ChkRegenerar.IsChecked == true;
+            _opciones.CrearFiltrosVista = ChkFiltrosVista.IsChecked == true;
             _opciones.FiltrarPorMaterial = ChkFiltrarMaterial.IsChecked == true;
             _opciones.TextoMaterialConcreto = TxtMaterial.Text?.Trim();
             _opciones.NombreParametroPeso = TxtParametroPeso.Text?.Trim();

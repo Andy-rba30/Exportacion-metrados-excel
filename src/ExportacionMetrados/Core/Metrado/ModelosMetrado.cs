@@ -73,6 +73,13 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>Si ya existen tablas con el mismo nombre, borrarlas y crearlas de nuevo.</summary>
         public bool RegenerarTablasExistentes { get; set; } = false;
 
+        /// <summary>
+        /// Crear filtros de vista (Visibilidad/Gráficos) con un color por tipo de elemento
+        /// metrado (concreto, acero estructural y refuerzo por partición) y aplicarlos a la
+        /// vista activa para comprobar visualmente el metrado.
+        /// </summary>
+        public bool CrearFiltrosVista { get; set; } = true;
+
         /// <summary>Añadir a las tablas de Revit un filtro "Material estructural contiene ...".</summary>
         public bool FiltrarPorMaterial { get; set; } = true;
 

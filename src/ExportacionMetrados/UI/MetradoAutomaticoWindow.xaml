@@ -55,6 +55,10 @@
                     <CheckBox x:Name="ChkRegenerar" IsChecked="False">
                         <TextBlock TextWrapping="Wrap" Text="Regenerar las tablas que ya existan (se borran y se crean de nuevo; se pierden columnas añadidas a mano y su ubicación en planos)" />
                     </CheckBox>
+                    <CheckBox x:Name="ChkFiltrosVista" IsChecked="True"
+                              ToolTip="Crea en el proyecto los filtros &quot;Metrado - Concreto - Vigas&quot;, &quot;Metrado - Acero estructural - Columnas&quot;, &quot;Metrado - Refuerzo - LOSAS&quot;, etc., cada uno con un color distinto, y los aplica a la vista activa (si admite sustituciones gráficas) con relleno sólido. Así se ve exactamente qué elementos entran en cada tabla. Después se pueden activar, desactivar o recolorear desde Visibilidad/Gráficos de cualquier vista.">
+                        <TextBlock TextWrapping="Wrap" Text="Crear filtros de vista por colores (Visibilidad/Gráficos) para comprobar el metrado: un color por elemento de concreto, de acero estructural y de refuerzo; se aplican a la vista activa" />
+                    </CheckBox>
                     <DockPanel Margin="0,3"
                                ToolTip="Las tablas se filtran por el parámetro &quot;Metrado - Material&quot; que escribe el plugin (CONCRETO / ACERO ESTRUCTURAL...). Si ese parámetro no se puede crear o la tabla no admite filtrarlo, se usa este respaldo: las tablas de concreto muestran los elementos cuyo material estructural contiene este texto y las de acero estructural, los que no lo contienen.">
                         <CheckBox x:Name="ChkFiltrarMaterial" IsChecked="True" VerticalAlignment="Center"

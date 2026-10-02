@@ -27,6 +27,16 @@ namespace ExportacionMetrados.Core.Metrado
         private static readonly Guid GuidParametroMaterial = new Guid("5B7E3C1A-2D4F-4A6B-9C8D-0E1F2A3B4C5D");
         private static readonly Guid GuidParametroPeso = new Guid("7D2A9F4E-6B1C-4C3D-8E5F-1A2B3C4D5E6F");
 
+        /// <summary>
+        /// Id del parámetro compartido "Metrado - Material" en el proyecto (para reglas de
+        /// filtro de vista), o null si aún no se ha creado.
+        /// </summary>
+        public static ElementId IdParametroMaterial(Document doc)
+        {
+            try { return SharedParameterElement.Lookup(doc, GuidParametroMaterial)?.Id; }
+            catch (Exception) { return null; }
+        }
+
         private static readonly string[] PistasAcero =
         {
             "acero", "steel", "metal", "perfil", "hss", "ipe", "ipn", "hea", "heb", "upn", "w ", "w1", "w2", "w3", "w4",

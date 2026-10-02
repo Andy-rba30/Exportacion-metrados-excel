@@ -45,6 +45,7 @@ namespace ExportacionMetrados
                 // 1. Tablas de planificación en Revit (requiere transacción).
                 List<ViewSchedule> tablas;
                 GeneradorTablasRevit generador;
+                GeneradorFiltrosVista filtros = null;
                 // 0. Cálculo directo del modelo (resumen con m³ y kg; también alimenta el peso de las tablas).
                 ResultadoMetrado resultado = new CalculadorMetrado(doc, opciones).Calcular();
                 advertencias.AddRange(resultado.Advertencias);
@@ -82,6 +83,14 @@ namespace ExportacionMetrados
                     // 1d. Tablas.
                     generador = new GeneradorTablasRevit(doc, opciones, uidoc.ActiveView?.Id);
                     tablas = generador.Generar();
+
+                    // 1e. Filtros de vista por colores para comprobar el metrado (opcional).
+                    if (opciones.CrearFiltrosVista)
+                    {
+                        filtros = new GeneradorFiltrosVista(doc, opciones);
+                        filtros.Generar(uidoc.ActiveView);
+                        advertencias.AddRange(filtros.Advertencias);
+                    }
                     t.Commit();
                 }
                 advertencias.AddRange(generador.Advertencias);
@@ -100,7 +109,7 @@ namespace ExportacionMetrados
                     catch (Exception) { /* no es crítico */ }
                 }
 
-                MostrarResumen(generador, tablas, resultado, opciones, advertencias, clasificados, particionados, pesados, perfilesPesados);
+                MostrarResumen(generador, filtros, tablas, resultado, opciones, advertencias, clasificados, particionados, pesados, perfilesPesados);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -119,7 +128,7 @@ namespace ExportacionMetrados
             return nombre + " - Metrado concreto y acero.xlsx";
         }
 
-        private static void MostrarResumen(GeneradorTablasRevit generador, List<ViewSchedule> tablas,
+        private static void MostrarResumen(GeneradorTablasRevit generador, GeneradorFiltrosVista filtros, List<ViewSchedule> tablas,
             ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias, int clasificados, int particionados,
             int pesados, int perfilesPesados)
         {
@@ -133,7 +142,12 @@ namespace ExportacionMetrados
                 $"Elementos clasificados (Metrado - Material): {clasificados}\n" +
                 $"Refuerzos con partición asignada: {particionados}\n" +
                 $"Refuerzos con peso actualizado: {pesados}\n" +
-                $"Perfiles metálicos con peso actualizado: {perfilesPesados}\n\n" +
+                $"Perfiles metálicos con peso actualizado: {perfilesPesados}\n" +
+                (filtros != null
+                    ? $"Filtros de vista por colores: {filtros.FiltrosCreados.Count} creados, {filtros.FiltrosReutilizados.Count} actualizados" +
+                      (filtros.VistaAplicada != null ? $", aplicados a la vista \"{filtros.VistaAplicada}\"" : string.Empty) + "\n"
+                    : string.Empty) +
+                "\n" +
                 $"Concreto: {resultado.Concreto.Count} elementos, {m3:N3} m³\n" +
                 $"Acero estructural: {resultado.AceroEstructural.Count} perfiles, {kgPerfiles:N2} kg\n" +
                 $"Acero de refuerzo: {resultado.Acero.Count} conjuntos de barras, {kg:N2} kg\n";

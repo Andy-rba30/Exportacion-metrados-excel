@@ -13,6 +13,8 @@ Plugin para Autodesk Revit, escrito en C#, que exporta las **tablas de planifica
 - Botón **Metrado automático**: calcula el concreto (m³), los perfiles metálicos (kg, por longitud × área de
   sección × densidad) y el acero de refuerzo (kg) de vigas, columnas y otros elementos estructurales leyendo
   directamente el modelo, sin necesitar tablas de planificación.
+- Filtros de vista por colores (opcionales) para comprobar visualmente qué elementos entran en cada tabla:
+  concreto, acero estructural y refuerzo por partición, cada uno con su color, aplicados a la vista activa.
 - Compatible con Revit 2021 a 2024 (.NET Framework 4.8), 2025 y 2026 (.NET 8) y 2027+ (.NET 10).
 
 ## Estructura
@@ -32,6 +34,7 @@ src/ExportacionMetrados/
 │       ├── CalculadorMetrado.cs   Recorre el modelo: volúmenes de concreto, peso de perfiles y barras de acero
 │       ├── ClasificadorElementos.cs Parámetros "Metrado - Material" y "Metrado - Peso (kg)", particiones
 │       ├── GeneradorTablasRevit.cs Crea las tablas de planificación de metrado en el proyecto
+│       ├── GeneradorFiltrosVista.cs Filtros de vista por colores para comprobar el metrado
 │       ├── ExportadorMetrado.cs   Escribe las hojas Resumen, Concreto, Acero estructural, Acero y detalle
 │       └── ModelosMetrado.cs      Opciones, categorías y resultados del metrado
 ├── UI/
@@ -143,6 +146,16 @@ función aparte para tablas que ya existen en el proyecto.)
   elementos cuyo material contiene el texto indicado en la ventana (`Concreto` por defecto) y las de acero
   estructural, los que no lo contienen. Si ese texto no distingue los materiales del modelo, se excluyen
   los materiales uno a uno. En condiciones normales el respaldo no interviene.
+- **Filtros de vista para verificar** (opción "Crear filtros de vista por colores"): el plugin crea en el
+  proyecto filtros de Visibilidad/Gráficos, uno por tipo de elemento, y los aplica a la vista activa con
+  color de línea y relleno sólido: `Metrado - Concreto - Vigas / Columnas / Losas / Cimentaciones / Muros`
+  (regla: categoría y `Metrado - Material = CONCRETO`), `Metrado - Acero estructural - Vigas / Columnas`
+  (`= ACERO ESTRUCTURAL`) y `Metrado - Refuerzo - VIGAS / COLUMNAS / CIMIENTOS / LOSAS / MUROS` (armaduras y
+  mallas por partición). Cada familia usa colores distintos (azules/rojos/verdes el concreto, celeste y
+  magenta los perfiles, naranjas y turquesas el refuerzo), así se ve exactamente qué se está metrando y en
+  qué tabla cae. Los filtros quedan en el proyecto: desde Visibilidad/Gráficos (VG) de cualquier vista se
+  pueden activar, ocultar o recolorear. Si la vista activa es una tabla o tiene una plantilla que controla
+  los filtros, se crean igual pero no se aplican (se avisa). Si ya existen se actualizan, no se duplican.
 - **Partición del acero**: antes de crear las tablas, el plugin escribe en la partición vacía de cada
   armadura el nombre de la categoría de su anfitrión (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`).
   Las tablas de acero por elemento filtran por ese texto. Las particiones que ya tienen texto se respetan
