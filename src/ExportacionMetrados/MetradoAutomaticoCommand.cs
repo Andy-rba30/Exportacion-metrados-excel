@@ -45,7 +45,11 @@ namespace ExportacionMetrados
                 // 1. Tablas de planificación en Revit (requiere transacción).
                 List<ViewSchedule> tablas;
                 GeneradorTablasRevit generador;
-                int clasificados = 0, particionados = 0;
+                // 0. Cálculo directo del modelo (resumen con m³ y kg; también alimenta el peso de las tablas).
+                ResultadoMetrado resultado = new CalculadorMetrado(doc, opciones).Calcular();
+                advertencias.AddRange(resultado.Advertencias);
+
+                int clasificados = 0, particionados = 0, pesados = 0;
                 using (var t = new Transaction(doc, "Metrado automático"))
                 {
                     t.Start();
@@ -65,16 +69,19 @@ namespace ExportacionMetrados
                             opciones.Categorias, opciones.SobrescribirParticiones, null, advertencias);
                     }
 
-                    // 1c. Tablas.
+                    // 1c. Peso en kg de cada armadura (longitud total × kg/m).
+                    if (opciones.IncluirAcero && ClasificadorElementos.AsegurarParametroPeso(doc, advertencias))
+                    {
+                        doc.Regenerate();
+                        pesados = ClasificadorElementos.RellenarPesos(doc, resultado.Acero, advertencias);
+                    }
+
+                    // 1d. Tablas.
                     generador = new GeneradorTablasRevit(doc, opciones, uidoc.ActiveView?.Id);
                     tablas = generador.Generar();
                     t.Commit();
                 }
                 advertencias.AddRange(generador.Advertencias);
-
-                // 2. Cálculo directo del modelo (resumen con m³ y kg).
-                ResultadoMetrado resultado = new CalculadorMetrado(doc, opciones).Calcular();
-                advertencias.AddRange(resultado.Advertencias);
 
                 // 3. Excel opcional: hojas con las tablas de Revit + resumen.
                 if (opciones.ExportarExcel)
@@ -90,7 +97,7 @@ namespace ExportacionMetrados
                     catch (Exception) { /* no es crítico */ }
                 }
 
-                MostrarResumen(generador, tablas, resultado, opciones, advertencias, clasificados, particionados);
+                MostrarResumen(generador, tablas, resultado, opciones, advertencias, clasificados, particionados, pesados);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -109,7 +116,7 @@ namespace ExportacionMetrados
         }
 
         private static void MostrarResumen(GeneradorTablasRevit generador, List<ViewSchedule> tablas,
-            ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias, int clasificados, int particionados)
+            ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias, int clasificados, int particionados, int pesados)
         {
             double m3 = resultado.Concreto.Sum(c => c.VolumenM3);
             double kg = resultado.Acero.Sum(a => a.PesoKg);
@@ -118,7 +125,8 @@ namespace ExportacionMetrados
                 $"Tablas creadas en Revit: {generador.TablasCreadas.Count}\n" +
                 $"Tablas existentes reutilizadas: {generador.TablasReutilizadas.Count}\n" +
                 $"Elementos clasificados (Metrado - Material): {clasificados}\n" +
-                $"Refuerzos con partición asignada: {particionados}\n\n" +
+                $"Refuerzos con partición asignada: {particionados}\n" +
+                $"Refuerzos con peso actualizado: {pesados}\n\n" +
                 $"Concreto: {resultado.Concreto.Count} elementos, {m3:N3} m³\n" +
                 $"Acero: {resultado.Acero.Count} conjuntos de barras, {kg:N2} kg\n";
 

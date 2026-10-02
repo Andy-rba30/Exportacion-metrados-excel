@@ -339,9 +339,14 @@ namespace ExportacionMetrados.Core.Metrado
 
             ScheduleField particion = Agregar(def, campos, "Partición", BuiltInParameter.NUMBER_PARTITION_PARAM);
 
+            // La categoría del anfitrión solo se usa como respaldo del filtro; no se muestra.
             ScheduleField hostCategoria = AgregarPorNombre(def, campos, "Elemento",
                 new[] { "REBAR_HOST_CATEGORY", "REBAR_ELEM_HOST_CATEGORY" },
                 new[] { "Host Category", "Categoría de anfitrión", "Categoría del anfitrión", "Categoría de host" });
+            if (hostCategoria != null)
+            {
+                try { hostCategoria.IsHidden = true; } catch (Exception) { }
+            }
 
             ScheduleField tipo = Agregar(def, campos, "Tipo de barra", BuiltInParameter.ELEM_TYPE_PARAM);
             ScheduleField diametro = Agregar(def, campos, "Diámetro", BuiltInParameter.REBAR_BAR_DIAMETER);
@@ -354,25 +359,18 @@ namespace ExportacionMetrados.Core.Metrado
             ScheduleField pesoUnitario = AgregarPorNombre(def, campos, "Peso unitario",
                 new[] { "REBAR_BAR_MASS_PER_UNIT_LENGTH" }, nombresPeso.ToArray());
 
-            ScheduleField masaTotal = AgregarPorNombre(def, campos, "Peso total",
-                new[] { "REBAR_ELEM_TOTAL_MASS", "REBAR_ELEM_TOTAL_BAR_MASS" },
-                new[] { "Total Bar Mass", "Masa total de barra", "Masa total de barras", "Peso total" });
+            // Peso en kg: parámetro que el plugin rellena (longitud total × kg/m).
+            ScheduleField peso = AgregarPorNombre(def, campos, "Peso (kg)",
+                new string[0], new[] { ClasificadorElementos.NombreParametroPeso });
 
-            Totales(cantidad, longTotal, masaTotal);
+            Totales(cantidad, longTotal, peso);
 
-            // Orden: partición (si no hay, queda un grupo en blanco), luego elemento, luego tipo.
+            // Orden: partición (encabezado y pie con totales), luego tipo de barra.
             if (particion != null)
             {
                 def.AddSortGroupField(new ScheduleSortGroupField(particion.FieldId)
                 {
                     ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
-                });
-            }
-            if (hostCategoria != null && cat == null)
-            {
-                def.AddSortGroupField(new ScheduleSortGroupField(hostCategoria.FieldId)
-                {
-                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true,
                 });
             }
             if (tipo != null) def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
@@ -404,7 +402,12 @@ namespace ExportacionMetrados.Core.Metrado
             if (pesoUnitario == null && cat == null)
             {
                 Advertencias.Add("No se encontró el parámetro de peso unitario \"" + _op.NombreParametroPeso +
-                                 "\" en los tipos de barra; las tablas de acero no incluyen esa columna.");
+                                 "\" en los tipos de barra; el peso se calculó por diámetro y densidad.");
+            }
+            if (peso == null && cat == null)
+            {
+                Advertencias.Add("No se encontró el parámetro \"" + ClasificadorElementos.NombreParametroPeso +
+                                 "\"; las tablas de acero no incluyen la columna de peso.");
             }
 
             return vs;

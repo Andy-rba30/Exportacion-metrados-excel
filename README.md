@@ -123,8 +123,8 @@ función aparte para tablas que ya existen en el proyecto.)
 | `Metrado concreto - Vigas` | Elemento (familia y tipo), Material, Cantidad, Longitud, Volumen. Solo elementos con material de concreto. | Por tipo; total general. **Sin niveles** (una viga puede cruzar varios). |
 | `Metrado concreto - Columnas` / `Losas` / `Cimentaciones` / `Muros` | Nivel, Elemento, Material, Cantidad, Longitud o Área, Espesor, Volumen | Por nivel (encabezado y pie con totales), luego tipo; total general |
 | `Metrado acero estructural - <elemento>` | Igual que la anterior pero con los elementos cuyo material **no** es concreto (perfiles metálicos, madera...). Solo se crea si existen. | Igual |
-| `Metrado acero - <elemento>` | Refuerzo con partición `VIGAS`, `COLUMNAS`, etc.: Partición, Elemento, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario | Por partición, luego tipo de barra; total general |
-| `Metrado acero - General` | Todo el refuerzo del modelo | Partición → Elemento anfitrión → Tipo de barra, con subtotales en cada nivel |
+| `Metrado acero - <elemento>` | Refuerzo con partición `VIGAS`, `COLUMNAS`, etc.: Partición, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario, Peso (kg) | Por partición (encabezado y pie con totales), luego tipo de barra; total general |
+| `Metrado acero - General` | Todo el refuerzo del modelo, mismas columnas | Por partición, luego tipo de barra; total general |
 
 - Las tablas no están desglosadas por elemento (una fila por tipo). Si quiere ver cada elemento, active
   "Desglosar cada ejemplar" en la tabla.
@@ -139,11 +139,11 @@ función aparte para tablas que ya existen en el proyecto.)
   armadura el nombre de la categoría de su anfitrión (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`).
   Las tablas de acero por elemento filtran por ese texto. Las particiones que ya tienen texto se respetan
   salvo que marque "Sobrescribir".
-- **Peso del acero**: la tabla incluye la columna con el parámetro de peso por metro del tipo de barra (por
-  defecto `Bar Mass per Unit Length`, editable en la ventana). Revit no permite crear valores calculados
-  desde la API, así que la columna "Peso total = Longitud total × Peso unitario" debe añadirse una sola vez
-  a mano en la tabla (Campos → Valor calculado). Como el plugin **reutiliza** las tablas existentes, esa
-  columna se conserva en las siguientes ejecuciones y se exporta a Excel.
+- **Peso del acero**: Revit no permite crear valores calculados desde la API, así que el plugin crea el
+  parámetro de proyecto **"Metrado - Peso (kg)"** en las armaduras y lo rellena en cada ejecución con
+  `Longitud total × peso por metro` (el peso por metro sale del parámetro del tipo de barra, por defecto
+  `Bar Mass per Unit Length`, o de π·d²/4 × densidad si no existe). Las tablas muestran esa columna con
+  totales. Si modifica armaduras después, vuelva a ejecutar el metrado para actualizar los pesos.
 - Si ya existe una tabla con el mismo nombre se reutiliza tal cual. La opción "Regenerar" la borra y la
   crea de nuevo (se pierden columnas añadidas a mano y su colocación en planos). Tras actualizar el plugin
   conviene regenerar una vez para obtener la nueva estructura.

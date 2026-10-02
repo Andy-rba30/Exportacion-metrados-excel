@@ -21,8 +21,11 @@ namespace ExportacionMetrados.Core.Metrado
         public const string ValorMadera = "MADERA";
         public const string ValorOtro = "OTRO";
 
-        // GUID fijo para que el parámetro compartido sea el mismo en todos los proyectos.
+        public const string NombreParametroPeso = "Metrado - Peso (kg)";
+
+        // GUID fijos para que los parámetros compartidos sean los mismos en todos los proyectos.
         private static readonly Guid GuidParametroMaterial = new Guid("5B7E3C1A-2D4F-4A6B-9C8D-0E1F2A3B4C5D");
+        private static readonly Guid GuidParametroPeso = new Guid("7D2A9F4E-6B1C-4C3D-8E5F-1A2B3C4D5E6F");
 
         private static readonly string[] PistasAcero =
         {
@@ -41,6 +44,19 @@ namespace ExportacionMetrados.Core.Metrado
         /// </summary>
         public static bool AsegurarParametroMaterial(Document doc, IEnumerable<BuiltInCategory> categorias, List<string> advertencias)
         {
+            return AsegurarParametro(doc, NombreParametroMaterial, GuidParametroMaterial, true, categorias, advertencias);
+        }
+
+        /// <summary>Crea y vincula "Metrado - Peso (kg)" a la categoría de armadura estructural.</summary>
+        public static bool AsegurarParametroPeso(Document doc, List<string> advertencias)
+        {
+            return AsegurarParametro(doc, NombreParametroPeso, GuidParametroPeso, false,
+                new[] { BuiltInCategory.OST_Rebar, BuiltInCategory.OST_FabricReinforcement }, advertencias);
+        }
+
+        private static bool AsegurarParametro(Document doc, string nombre, Guid guid, bool esTexto,
+            IEnumerable<BuiltInCategory> categorias, List<string> advertencias)
+        {
             Application app = doc.Application;
             var categoriasSet = app.Create.NewCategorySet();
             foreach (BuiltInCategory bic in categorias)
@@ -53,7 +69,7 @@ namespace ExportacionMetrados.Core.Metrado
             try
             {
                 // ¿Ya está vinculado?
-                Definition existente = BuscarDefinicionVinculada(doc);
+                Definition existente = BuscarDefinicionVinculada(doc, nombre);
                 if (existente != null)
                 {
                     var binding = doc.ParameterBindings.get_Item(existente) as InstanceBinding;
@@ -69,7 +85,7 @@ namespace ExportacionMetrados.Core.Metrado
                     return true;
                 }
 
-                ExternalDefinition definicion = ObtenerDefinicionCompartida(app, advertencias);
+                ExternalDefinition definicion = ObtenerDefinicionCompartida(app, nombre, guid, esTexto, advertencias);
                 if (definicion == null) return false;
 
                 InstanceBinding nuevo = app.Create.NewInstanceBinding(categoriasSet);
@@ -79,24 +95,24 @@ namespace ExportacionMetrados.Core.Metrado
                     // Puede fallar si existe con otro vínculo: intentar reinsertar.
                     ok = doc.ParameterBindings.ReInsert(definicion, nuevo, GrupoParametro());
                 }
-                if (!ok) advertencias.Add("No se pudo vincular el parámetro \"" + NombreParametroMaterial + "\" a las categorías.");
+                if (!ok) advertencias.Add("No se pudo vincular el parámetro \"" + nombre + "\" a las categorías.");
                 return ok;
             }
             catch (Exception ex)
             {
-                advertencias.Add("No se pudo crear el parámetro \"" + NombreParametroMaterial + "\": " + ex.Message);
+                advertencias.Add("No se pudo crear el parámetro \"" + nombre + "\": " + ex.Message);
                 return false;
             }
         }
 
-        private static Definition BuscarDefinicionVinculada(Document doc)
+        private static Definition BuscarDefinicionVinculada(Document doc, string nombre)
         {
             DefinitionBindingMapIterator it = doc.ParameterBindings.ForwardIterator();
             it.Reset();
             while (it.MoveNext())
             {
                 Definition d = it.Key;
-                if (d != null && string.Equals(d.Name, NombreParametroMaterial, StringComparison.OrdinalIgnoreCase))
+                if (d != null && string.Equals(d.Name, nombre, StringComparison.OrdinalIgnoreCase))
                 {
                     return d;
                 }
@@ -108,7 +124,8 @@ namespace ExportacionMetrados.Core.Metrado
         /// Obtiene la definición compartida desde un archivo temporal propio, sin
         /// alterar el archivo de parámetros compartidos del usuario.
         /// </summary>
-        private static ExternalDefinition ObtenerDefinicionCompartida(Application app, List<string> advertencias)
+        private static ExternalDefinition ObtenerDefinicionCompartida(Application app, string nombre, Guid guid, bool esTexto,
+            List<string> advertencias)
         {
             string archivoOriginal = app.SharedParametersFilename;
             string carpeta = System.IO.Path.Combine(
@@ -128,17 +145,19 @@ namespace ExportacionMetrados.Core.Metrado
                 }
 
                 DefinitionGroup grupo = df.Groups.get_Item("Metrados") ?? df.Groups.Create("Metrados");
-                var def = grupo.Definitions.get_Item(NombreParametroMaterial) as ExternalDefinition;
+                var def = grupo.Definitions.get_Item(nombre) as ExternalDefinition;
                 if (def != null) return def;
 
 #if REVIT2021
-                var opciones = new ExternalDefinitionCreationOptions(NombreParametroMaterial, ParameterType.Text)
+                var opciones = new ExternalDefinitionCreationOptions(nombre, esTexto ? ParameterType.Text : ParameterType.Number)
 #else
-                var opciones = new ExternalDefinitionCreationOptions(NombreParametroMaterial, SpecTypeId.String.Text)
+                var opciones = new ExternalDefinitionCreationOptions(nombre, esTexto ? SpecTypeId.String.Text : SpecTypeId.Number)
 #endif
                 {
-                    GUID = GuidParametroMaterial,
-                    Description = "Clasificación automática para el metrado: CONCRETO, ACERO ESTRUCTURAL, MADERA u OTRO.",
+                    GUID = guid,
+                    Description = esTexto
+                        ? "Clasificación automática para el metrado: CONCRETO, ACERO ESTRUCTURAL, MADERA u OTRO."
+                        : "Peso del acero de refuerzo en kg calculado por el plugin (longitud total × kg/m).",
                     UserModifiable = true,
                     Visible = true,
                 };
@@ -270,6 +289,36 @@ namespace ExportacionMetrados.Core.Metrado
                 if (p.Length <= 2 ? texto.StartsWith(p) : texto.Contains(p)) return true;
             }
             return false;
+        }
+
+        /// <summary>
+        /// Escribe "Metrado - Peso (kg)" en cada armadura con el peso calculado.
+        /// Devuelve el número de armaduras actualizadas.
+        /// </summary>
+        public static int RellenarPesos(Document doc, IEnumerable<BarraAcero> barras, List<string> advertencias)
+        {
+            int n = 0;
+            foreach (BarraAcero b in barras)
+            {
+                try
+                {
+                    Element e = doc.GetElement(b.Id);
+                    Parameter p = e?.LookupParameter(NombreParametroPeso);
+                    if (p == null || p.IsReadOnly || p.StorageType != StorageType.Double) continue;
+
+                    double valor = Math.Round(b.PesoKg, 3);
+                    if (Math.Abs(p.AsDouble() - valor) > 0.0005)
+                    {
+                        p.Set(valor);
+                        n++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    advertencias.Add($"No se pudo escribir el peso de la armadura {b.Id}: {ex.Message}");
+                }
+            }
+            return n;
         }
 
         // ------------------------------------------------------------------
