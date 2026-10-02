@@ -62,6 +62,8 @@
     </None>
     <Resource Include="Resources\icono32.png" />
     <Resource Include="Resources\icono16.png" />
+    <Resource Include="Resources\metrado32.png" />
+    <Resource Include="Resources\metrado16.png" />
   </ItemGroup>
 
   <!--

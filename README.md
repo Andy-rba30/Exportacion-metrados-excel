@@ -10,6 +10,8 @@ Plugin para Autodesk Revit, escrito en C#, que exporta las **tablas de planifica
   (por ejemplo `12.50 m²` queda como `12.5` con formato `#,##0.00 "m²"`), para que se puedan sumar
   y usar en fórmulas.
 - Ventana de selección con buscador, selección múltiple y opciones de formato.
+- Botón **Metrado automático**: calcula el concreto (m³) y el acero de refuerzo (kg) de vigas, columnas y
+  otros elementos estructurales leyendo directamente el modelo, sin necesitar tablas de planificación.
 - Compatible con Revit 2021 a 2024 (.NET Framework 4.8) y Revit 2025+ (.NET 8).
 
 ## Estructura
@@ -18,14 +20,20 @@ Plugin para Autodesk Revit, escrito en C#, que exporta las **tablas de planifica
 ExportacionMetrados.sln
 src/ExportacionMetrados/
 ├── App.cs                         Crea la pestaña "Metrados" y el botón en la cinta
-├── ExportarMetradosCommand.cs     Comando: abre la ventana y lanza la exportación
+├── ExportarMetradosCommand.cs     Comando 1: exporta las tablas de planificación elegidas
+├── MetradoAutomaticoCommand.cs    Comando 2: metrado automático de concreto y acero
 ├── ExportacionMetrados.addin      Manifiesto que Revit lee para cargar el plugin
 ├── Core/
 │   ├── LectorTablas.cs            Lee las tablas de Revit (encabezados y cuerpo)
 │   ├── ExportadorExcel.cs         Escribe el .xlsx con ClosedXML
-│   └── OpcionesExportacion.cs     Opciones y resultado de la exportación
+│   ├── OpcionesExportacion.cs     Opciones y resultado de la exportación
+│   └── Metrado/
+│       ├── CalculadorMetrado.cs   Recorre el modelo: volúmenes de concreto y barras de acero
+│       ├── ExportadorMetrado.cs   Escribe las hojas Resumen, Concreto, Acero y detalle
+│       └── ModelosMetrado.cs      Opciones, categorías y resultados del metrado
 ├── UI/
-│   ├── SeleccionTablasWindow.xaml Ventana WPF de selección
+│   ├── SeleccionTablasWindow.xaml Ventana de selección de tablas
+│   ├── MetradoAutomaticoWindow.xaml Ventana de opciones del metrado automático
 │   └── TablaItem.cs               Modelo de cada fila de la lista
 └── Resources/                     Iconos del botón
 ```
@@ -76,7 +84,8 @@ Si prefiere no usar la copia automática, copie `ExportacionMetrados.addin` a
 ## Uso
 
 1. Abra el proyecto en Revit.
-2. Vaya a la pestaña **Metrados** y pulse **Exportar a Excel**.
+2. Vaya a la pestaña **Metrados**. Hay dos botones: **Exportar a Excel** (tablas de planificación) y
+   **Metrado automático** (concreto y acero desde el modelo, ver más abajo). Pulse **Exportar a Excel**.
 3. Marque las tablas que desea exportar (si la vista activa es una tabla, aparece marcada).
    Puede filtrar por nombre o categoría y usar **Todas** / **Ninguna**.
 4. Ajuste las opciones:
@@ -88,6 +97,40 @@ Si prefiere no usar la copia automática, copie `ExportacionMetrados.addin` a
 
 Cada tabla se escribe en su propia hoja. El nombre de la hoja es el de la tabla, recortado a 31 caracteres
 y sin los caracteres que Excel no admite (`[ ] * ? / \ :`); si hay nombres repetidos se añade `(2)`, `(3)`, etc.
+
+## Metrado automático de concreto y acero
+
+El botón **Metrado automático** no usa tablas: recorre los elementos del modelo y genera un libro con:
+
+| Hoja | Contenido |
+|---|---|
+| Resumen | Concreto (m³), acero (kg) y cuantía (kg/m³) por tipo de elemento, más acero total por diámetro. |
+| Concreto | Por elemento (Vigas, Columnas, ...) → nivel → tipo: cantidad, longitud/altura (m) y volumen (m³), con subtotales por elemento y total general. |
+| Acero | Por elemento anfitrión → nivel → diámetro: número de barras, longitud total (m) y peso (kg), con subtotales y total. |
+| Concreto - Detalle | Una fila por elemento (Id, nivel, familia, tipo, marca, material, longitud, volumen) con autofiltro. |
+| Acero - Detalle | Una fila por conjunto de barras (Id, Id del anfitrión, partición, tipo, diámetro, cantidad, longitud, peso). |
+
+Los subtotales y totales se escriben como fórmulas de Excel, así que se recalculan si edita las filas.
+
+**Qué se mide y cómo**
+
+- Categorías disponibles: Vigas (Structural Framing), Columnas (Structural Columns), Cimentaciones, Losas y Muros.
+  Por defecto solo Vigas y Columnas están marcadas.
+- Volumen de concreto: se suma el volumen de cada material del elemento (`GetMaterialVolume`) que sea de
+  concreto. Un material se reconoce como concreto si su clase o nombre contiene "concreto", "hormigón",
+  "concrete" o "f'c", o si su activo estructural es de clase Concrete. En losas y muros compuestos esto
+  excluye acabados, aislamiento y otras capas. Si el elemento no tiene materiales asignados se usa el
+  material estructural y el parámetro Volumen.
+- Opción **Solo material de concreto**: omite vigas o columnas de acero estructural, madera, etc. Los
+  elementos sin material se incluyen igualmente y se avisa.
+- Nivel: nivel de referencia (vigas), nivel base (columnas, muros) o el nivel del elemento.
+- Acero: se leen las barras (`Rebar` y `RebarInSystem`) cuyo anfitrión pertenece a las categorías marcadas.
+  Se usan los parámetros Longitud total de barra y Cantidad. El peso se calcula como
+  `longitud × π·d²/4 × densidad` (7850 kg/m³ por defecto, editable). Si el tipo de barra tiene un parámetro
+  numérico llamado "Peso unitario", "Peso por metro", "Bar Weight", "Unit Weight" o "Weight per Length"
+  (en kg/m) se usa ese valor en lugar de la fórmula.
+- Las mallas electrosoldadas (Fabric Sheet) y el refuerzo por área/trayectoria sin barras generadas no se
+  cuentan.
 
 ## Notas técnicas
 

@@ -66,7 +66,21 @@ namespace ExportacionMetrados
                 Image = CargarIcono("icono16.png"),
             };
 
+            var datosMetrado = new PushButtonData(
+                "MetradoAutomatico",
+                "Metrado\nautomático",
+                rutaEnsamblado,
+                typeof(MetradoAutomaticoCommand).FullName)
+            {
+                ToolTip = "Calcula el concreto (m³) y el acero (kg) de vigas, columnas y otros elementos estructurales y lo exporta a Excel.",
+                LongDescription = "Lee los elementos del modelo directamente: volumen de concreto agrupado por elemento, nivel y tipo, " +
+                                  "y acero de refuerzo agrupado por elemento anfitrión, nivel y diámetro. No requiere tablas de planificación.",
+                LargeImage = CargarIcono("metrado32.png"),
+                Image = CargarIcono("metrado16.png"),
+            };
+
             panel.AddItem(datosBoton);
+            panel.AddItem(datosMetrado);
         }
 
         private static BitmapImage CargarIcono(string nombre)

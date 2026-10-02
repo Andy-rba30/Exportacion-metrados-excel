@@ -1,0 +1,394 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Structure;
+
+namespace ExportacionMetrados.Core.Metrado
+{
+    /// <summary>
+    /// Recorre el modelo y calcula volúmenes de concreto y pesos de acero
+    /// directamente desde los elementos, sin necesidad de tablas de planificación.
+    /// </summary>
+    public class CalculadorMetrado
+    {
+        private readonly Document _doc;
+        private readonly OpcionesMetrado _opciones;
+        private readonly Dictionary<ElementId, bool> _cacheMaterialConcreto = new Dictionary<ElementId, bool>();
+        private readonly Dictionary<ElementId, Level> _cacheNiveles = new Dictionary<ElementId, Level>();
+
+        private static readonly string[] PalabrasConcreto = { "concret", "hormig", "f'c", "f´c", "fc=", "fc " };
+        private static readonly string[] NombresParametroPesoBarra = { "Peso unitario", "Peso por metro", "Bar Weight", "Unit Weight", "Weight per Length" };
+
+        public CalculadorMetrado(Document doc, OpcionesMetrado opciones)
+        {
+            _doc = doc ?? throw new ArgumentNullException(nameof(doc));
+            _opciones = opciones ?? throw new ArgumentNullException(nameof(opciones));
+        }
+
+        public ResultadoMetrado Calcular()
+        {
+            var resultado = new ResultadoMetrado();
+            var categoriasSeleccionadas = _opciones.Categorias.Where(c => c.Seleccionada).ToList();
+
+            foreach (CategoriaMetrado cat in categoriasSeleccionadas)
+            {
+                CalcularConcreto(cat, resultado);
+            }
+
+            if (_opciones.IncluirAcero)
+            {
+                CalcularAcero(categoriasSeleccionadas, resultado);
+            }
+
+            if (resultado.ElementosOmitidosPorMaterial > 0)
+            {
+                resultado.Advertencias.Add(
+                    $"{resultado.ElementosOmitidosPorMaterial} elemento(s) se omitieron porque su material no es de concreto. " +
+                    "Desactive \"Solo material de concreto\" para incluirlos.");
+            }
+
+            return resultado;
+        }
+
+        // ------------------------------------------------------------------
+        // Concreto
+        // ------------------------------------------------------------------
+
+        private void CalcularConcreto(CategoriaMetrado cat, ResultadoMetrado resultado)
+        {
+            var elementos = new FilteredElementCollector(_doc)
+                .OfCategory(cat.Categoria)
+                .WhereElementIsNotElementType()
+                .ToElements();
+
+            foreach (Element e in elementos)
+            {
+                try
+                {
+                    ElementoConcreto medido = MedirElementoConcreto(e, cat.Nombre);
+                    if (medido != null)
+                    {
+                        resultado.Concreto.Add(medido);
+                    }
+                    else
+                    {
+                        resultado.ElementosOmitidosPorMaterial++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    resultado.Advertencias.Add($"{cat.Nombre} Id {e.Id}: {ex.Message}");
+                }
+            }
+        }
+
+        private ElementoConcreto MedirElementoConcreto(Element e, string nombreCategoria)
+        {
+            // Volumen por material: suma solo los materiales de concreto (para losas o
+            // muros compuestos esto excluye acabados, aislamiento, etc.).
+            double volumenPies3 = 0;
+            string nombreMaterial = null;
+            bool hayMateriales = false;
+
+            ICollection<ElementId> materiales;
+            try { materiales = e.GetMaterialIds(false); }
+            catch { materiales = new List<ElementId>(); }
+
+            foreach (ElementId matId in materiales)
+            {
+                hayMateriales = true;
+                Material mat = _doc.GetElement(matId) as Material;
+                if (mat == null) continue;
+
+                bool esConcreto = EsMaterialConcreto(mat);
+                if (esConcreto || !_opciones.SoloMaterialConcreto)
+                {
+                    double v = e.GetMaterialVolume(matId);
+                    if (v > 0)
+                    {
+                        volumenPies3 += v;
+                        if (nombreMaterial == null || esConcreto) nombreMaterial = mat.Name;
+                    }
+                }
+            }
+
+            if (volumenPies3 <= 0)
+            {
+                // Sin materiales asignados (por ejemplo "<Por categoría>"): usar el
+                // material estructural o el de la categoría y el volumen total.
+                Material matEstructural = ObtenerMaterialEstructural(e);
+                bool esConcreto = matEstructural != null && EsMaterialConcreto(matEstructural);
+
+                // Si se conoce el material y no es concreto, se omite. Si no hay
+                // material asignado no se puede verificar y se incluye con aviso.
+                if (_opciones.SoloMaterialConcreto && (hayMateriales || matEstructural != null) && !esConcreto)
+                {
+                    return null;
+                }
+
+                volumenPies3 = LeerDouble(e, BuiltInParameter.HOST_VOLUME_COMPUTED);
+                nombreMaterial = matEstructural?.Name ?? "(sin material)";
+            }
+
+            if (volumenPies3 <= 0)
+            {
+                return null;
+            }
+
+            Level nivel = ObtenerNivel(e);
+            var tipo = _doc.GetElement(e.GetTypeId()) as ElementType;
+
+            return new ElementoConcreto
+            {
+                Id = e.Id,
+                Categoria = nombreCategoria,
+                Nivel = nivel?.Name ?? "(sin nivel)",
+                ElevacionNivel = nivel?.Elevation ?? double.MinValue,
+                Familia = tipo?.FamilyName ?? e.Category?.Name ?? string.Empty,
+                Tipo = tipo?.Name ?? e.Name,
+                Marca = LeerTexto(e, BuiltInParameter.ALL_MODEL_MARK),
+                Material = nombreMaterial,
+                LongitudM = AMetros(ObtenerLongitud(e)),
+                VolumenM3 = AMetrosCubicos(volumenPies3),
+            };
+        }
+
+        private Material ObtenerMaterialEstructural(Element e)
+        {
+            Parameter p = e.get_Parameter(BuiltInParameter.STRUCTURAL_MATERIAL_PARAM);
+            if (p == null || p.AsElementId() == ElementId.InvalidElementId)
+            {
+                var tipo = _doc.GetElement(e.GetTypeId());
+                p = tipo?.get_Parameter(BuiltInParameter.STRUCTURAL_MATERIAL_PARAM);
+            }
+            if (p != null && p.AsElementId() != ElementId.InvalidElementId)
+            {
+                return _doc.GetElement(p.AsElementId()) as Material;
+            }
+            return e.Category?.Material;
+        }
+
+        private bool EsMaterialConcreto(Material mat)
+        {
+            if (_cacheMaterialConcreto.TryGetValue(mat.Id, out bool cached)) return cached;
+
+            bool resultado = ContienePalabraConcreto(mat.MaterialClass) || ContienePalabraConcreto(mat.Name);
+
+            if (!resultado)
+            {
+                // Comprobar también el material estructural asociado (StructuralAssetId)
+                try
+                {
+                    var activo = _doc.GetElement(mat.StructuralAssetId) as PropertySetElement;
+                    StructuralAsset sa = activo?.GetStructuralAsset();
+                    if (sa != null && sa.StructuralAssetClass == StructuralAssetClass.Concrete)
+                    {
+                        resultado = true;
+                    }
+                }
+                catch { }
+            }
+
+            _cacheMaterialConcreto[mat.Id] = resultado;
+            return resultado;
+        }
+
+        private static bool ContienePalabraConcreto(string texto)
+        {
+            if (string.IsNullOrEmpty(texto)) return false;
+            string t = texto.ToLowerInvariant();
+            foreach (string palabra in PalabrasConcreto)
+            {
+                if (t.Contains(palabra)) return true;
+            }
+            return false;
+        }
+
+        private static double ObtenerLongitud(Element e)
+        {
+            double l = LeerDouble(e, BuiltInParameter.INSTANCE_LENGTH_PARAM);
+            if (l > 0) return l;
+
+            l = LeerDouble(e, BuiltInParameter.CURVE_ELEM_LENGTH);
+            if (l > 0) return l;
+
+            if (e.Location is LocationCurve lc && lc.Curve != null)
+            {
+                return lc.Curve.Length;
+            }
+            return 0;
+        }
+
+        // ------------------------------------------------------------------
+        // Acero
+        // ------------------------------------------------------------------
+
+        private void CalcularAcero(List<CategoriaMetrado> categorias, ResultadoMetrado resultado)
+        {
+            var mapaCategorias = categorias.ToDictionary(c => new ElementId(c.Categoria), c => c.Nombre);
+
+            var barras = new List<Element>();
+            barras.AddRange(new FilteredElementCollector(_doc).OfClass(typeof(Rebar)).ToElements());
+            barras.AddRange(new FilteredElementCollector(_doc).OfClass(typeof(RebarInSystem)).ToElements());
+
+            foreach (Element barra in barras)
+            {
+                try
+                {
+                    ElementId hostId = barra is Rebar r ? r.GetHostId()
+                                     : barra is RebarInSystem ris ? ris.GetHostId()
+                                     : ElementId.InvalidElementId;
+
+                    Element host = hostId != ElementId.InvalidElementId ? _doc.GetElement(hostId) : null;
+                    if (host?.Category == null) continue;
+
+                    if (!mapaCategorias.TryGetValue(host.Category.Id, out string nombreCategoria))
+                    {
+                        continue; // el anfitrión no es de una categoría seleccionada
+                    }
+
+                    BarraAcero medida = MedirBarra(barra, host, nombreCategoria);
+                    if (medida != null) resultado.Acero.Add(medida);
+                }
+                catch (Exception ex)
+                {
+                    resultado.Advertencias.Add($"Acero Id {barra.Id}: {ex.Message}");
+                }
+            }
+
+            if (_opciones.IncluirAcero && barras.Count == 0)
+            {
+                resultado.Advertencias.Add("El modelo no contiene barras de refuerzo (Rebar).");
+            }
+        }
+
+        private BarraAcero MedirBarra(Element barra, Element host, string nombreCategoria)
+        {
+            var tipoBarra = _doc.GetElement(barra.GetTypeId()) as RebarBarType;
+
+            double diametroPies = 0;
+            if (tipoBarra != null)
+            {
+                diametroPies = LeerDouble(tipoBarra, BuiltInParameter.REBAR_BAR_DIAMETER);
+                if (diametroPies <= 0)
+                {
+                    Parameter p = tipoBarra.LookupParameter("Bar Diameter") ?? tipoBarra.LookupParameter("Diámetro de barra");
+                    if (p != null) diametroPies = p.AsDouble();
+                }
+            }
+
+            double longitudTotalPies = LeerDouble(barra, BuiltInParameter.REBAR_ELEM_TOTAL_LENGTH);
+            int cantidad = (int)Math.Round(LeerDouble(barra, BuiltInParameter.REBAR_ELEM_QUANTITY_OF_BARS));
+            if (cantidad <= 0 && barra is Rebar rb) cantidad = rb.NumberOfBarPositions;
+            if (cantidad <= 0) cantidad = 1;
+
+            if (longitudTotalPies <= 0)
+            {
+                // Longitud de una barra × cantidad como respaldo
+                double unaBarra = LeerDouble(barra, BuiltInParameter.REBAR_ELEM_LENGTH);
+                longitudTotalPies = unaBarra * cantidad;
+            }
+
+            double longitudM = AMetros(longitudTotalPies);
+            double diametroMm = AMilimetros(diametroPies);
+
+            double pesoPorMetro = ObtenerPesoPorMetro(tipoBarra, diametroMm);
+            double pesoKg = longitudM * pesoPorMetro;
+
+            Level nivel = ObtenerNivel(host);
+
+            return new BarraAcero
+            {
+                Id = barra.Id,
+                HostId = host.Id,
+                CategoriaHost = nombreCategoria,
+                Nivel = nivel?.Name ?? "(sin nivel)",
+                ElevacionNivel = nivel?.Elevation ?? double.MinValue,
+                TipoBarra = tipoBarra?.Name ?? barra.Name,
+                DiametroMm = diametroMm,
+                Cantidad = cantidad,
+                LongitudTotalM = longitudM,
+                PesoKg = pesoKg,
+                Particion = LeerTexto(barra, BuiltInParameter.NUMBER_PARTITION_PARAM),
+            };
+        }
+
+        /// <summary>
+        /// Peso por metro lineal (kg/m). Si el tipo de barra tiene un parámetro con
+        /// el peso unitario se usa ese; si no, se calcula por densidad y diámetro.
+        /// </summary>
+        private double ObtenerPesoPorMetro(RebarBarType tipoBarra, double diametroMm)
+        {
+            if (tipoBarra != null)
+            {
+                foreach (string nombre in NombresParametroPesoBarra)
+                {
+                    Parameter p = tipoBarra.LookupParameter(nombre);
+                    if (p != null && p.StorageType == StorageType.Double && p.AsDouble() > 0)
+                    {
+                        // Se asume que el parámetro está en kg/m (parámetro compartido numérico).
+                        return p.AsDouble();
+                    }
+                }
+            }
+
+            double dM = diametroMm / 1000.0;
+            double areaM2 = Math.PI * dM * dM / 4.0;
+            return areaM2 * _opciones.DensidadAcero;
+        }
+
+        // ------------------------------------------------------------------
+        // Utilidades
+        // ------------------------------------------------------------------
+
+        private Level ObtenerNivel(Element e)
+        {
+            ElementId id = ElementId.InvalidElementId;
+
+            // Vigas: nivel de referencia; columnas: nivel base; resto: LevelId.
+            foreach (BuiltInParameter bip in new[]
+            {
+                BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM,
+                BuiltInParameter.FAMILY_BASE_LEVEL_PARAM,
+                BuiltInParameter.SCHEDULE_LEVEL_PARAM,
+                BuiltInParameter.WALL_BASE_CONSTRAINT,
+                BuiltInParameter.LEVEL_PARAM,
+            })
+            {
+                Parameter p = e.get_Parameter(bip);
+                if (p != null && p.StorageType == StorageType.ElementId && p.AsElementId() != ElementId.InvalidElementId)
+                {
+                    id = p.AsElementId();
+                    break;
+                }
+            }
+
+            if (id == ElementId.InvalidElementId) id = e.LevelId;
+            if (id == null || id == ElementId.InvalidElementId) return null;
+
+            if (!_cacheNiveles.TryGetValue(id, out Level nivel))
+            {
+                nivel = _doc.GetElement(id) as Level;
+                _cacheNiveles[id] = nivel;
+            }
+            return nivel;
+        }
+
+        private static double LeerDouble(Element e, BuiltInParameter bip)
+        {
+            Parameter p = e.get_Parameter(bip);
+            return p != null && p.StorageType == StorageType.Double && p.HasValue ? p.AsDouble() : 0;
+        }
+
+        private static string LeerTexto(Element e, BuiltInParameter bip)
+        {
+            Parameter p = e.get_Parameter(bip);
+            return p != null && p.HasValue ? (p.AsString() ?? string.Empty) : string.Empty;
+        }
+
+        private static double AMetros(double pies) => UnitUtils.ConvertFromInternalUnits(pies, UnitTypeId.Meters);
+        private static double AMilimetros(double pies) => UnitUtils.ConvertFromInternalUnits(pies, UnitTypeId.Millimeters);
+        private static double AMetrosCubicos(double pies3) => UnitUtils.ConvertFromInternalUnits(pies3, UnitTypeId.CubicMeters);
+    }
+}
