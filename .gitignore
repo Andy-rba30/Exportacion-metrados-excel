@@ -1,0 +1,21 @@
+# Build
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.cache
+TestResults/
+
+# NuGet
+packages/
+*.nupkg
+
+# Rider / VS Code
+.idea/
+.vscode/
+
+# Revit journals / backups
+*.rvt.bak
+*.0001.rvt
+journal.*.txt

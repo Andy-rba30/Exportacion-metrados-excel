@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Exportación de Metrados a Excel</Name>
+    <Assembly>ExportacionMetrados\ExportacionMetrados.dll</Assembly>
+    <AddInId>8C1E2D4B-5A6F-4B7C-9D3E-1F2A3B4C5D6E</AddInId>
+    <FullClassName>ExportacionMetrados.App</FullClassName>
+    <VendorId>DBRS</VendorId>
+    <VendorDescription>DBR Soluciones</VendorDescription>
+  </AddIn>
+</RevitAddIns>

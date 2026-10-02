@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Plugin de Revit: Exportación de metrados (tablas de planificación) a Excel.
+
+    Compilar:  dotnet build -c Release -p:RevitVersion=2024
+    La versión de Revit se puede cambiar con la propiedad RevitVersion
+    (2021, 2022, 2023, 2024, 2025...). Revit 2025+ usa .NET 8; para esas
+    versiones el TargetFramework cambia automáticamente a net8.0-windows.
+  -->
+
+  <PropertyGroup>
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2024</RevitVersion>
+    <TargetFramework Condition="$(RevitVersion) &lt; 2025">net48</TargetFramework>
+    <TargetFramework Condition="$(RevitVersion) &gt;= 2025">net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>ExportacionMetrados</RootNamespace>
+    <AssemblyName>ExportacionMetrados</AssemblyName>
+    <Version>1.0.0</Version>
+    <Authors>DBR Soluciones</Authors>
+    <Product>Exportación de Metrados a Excel</Product>
+    <Description>Exporta las tablas de planificación (metrados) de Revit a un libro de Excel.</Description>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <DefineConstants>$(DefineConstants);REVIT$(RevitVersion)</DefineConstants>
+    <RevitInstallDir>$(ProgramW6432)\Autodesk\Revit $(RevitVersion)</RevitInstallDir>
+    <AddinsDir>$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)</AddinsDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Referencias a la API de Revit (no se copian a la salida). -->
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitInstallDir)\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitInstallDir)\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Generación del archivo .xlsx sin depender de Excel instalado. -->
+    <PackageReference Include="ClosedXML" Version="0.102.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="ExportacionMetrados.addin">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <Resource Include="Resources\icono32.png" />
+    <Resource Include="Resources\icono16.png" />
+  </ItemGroup>
+
+  <!--
+    Tras compilar, copia el plugin a la carpeta de add-ins del usuario para que
+    Revit lo cargue al iniciar. Se puede desactivar con -p:DeployToRevit=false
+  -->
+  <Target Name="DeployToRevit" AfterTargets="Build" Condition="'$(DeployToRevit)' != 'false' AND '$(OS)' == 'Windows_NT'">
+    <ItemGroup>
+      <OutputFiles Include="$(OutDir)**\*.*" Exclude="$(OutDir)**\*.addin" />
+    </ItemGroup>
+    <MakeDir Directories="$(AddinsDir)\ExportacionMetrados" />
+    <Copy SourceFiles="@(OutputFiles)" DestinationFiles="@(OutputFiles->'$(AddinsDir)\ExportacionMetrados\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(OutDir)ExportacionMetrados.addin" DestinationFolder="$(AddinsDir)" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Plugin desplegado en $(AddinsDir)" />
+  </Target>
+
+</Project>
