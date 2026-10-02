@@ -43,9 +43,28 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>Añadir hojas con el detalle elemento por elemento.</summary>
         public bool IncluirDetalle { get; set; } = true;
 
-        /// <summary>Densidad del acero usada para calcular el peso (kg/m³).</summary>
+        /// <summary>Densidad del acero usada para calcular el peso (kg/m³) cuando no hay parámetro de peso.</summary>
         public double DensidadAcero { get; set; } = 7850.0;
 
+        /// <summary>Nombre del parámetro del tipo de barra con el peso por metro (kg/m).</summary>
+        public string NombreParametroPeso { get; set; } = "Bar Mass per Unit Length";
+
+        /// <summary>Si ya existen tablas con el mismo nombre, borrarlas y crearlas de nuevo.</summary>
+        public bool RegenerarTablasExistentes { get; set; } = false;
+
+        /// <summary>Añadir a las tablas de Revit un filtro "Material estructural contiene ...".</summary>
+        public bool FiltrarPorMaterial { get; set; } = true;
+
+        /// <summary>Texto del filtro de material en las tablas de Revit.</summary>
+        public string TextoMaterialConcreto { get; set; } = "Concreto";
+
+        /// <summary>Exportar las tablas generadas a Excel en la misma operación.</summary>
+        public bool ExportarExcel { get; set; } = true;
+
+        /// <summary>Abrir la primera tabla generada en Revit al terminar.</summary>
+        public bool AbrirTablaAlTerminar { get; set; } = true;
+
+        /// <summary>Ofrecer abrir el archivo Excel al terminar.</summary>
         public bool AbrirAlTerminar { get; set; } = true;
     }
 

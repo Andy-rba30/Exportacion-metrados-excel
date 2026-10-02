@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Autodesk.Revit.DB;
 using ClosedXML.Excel;
 
 namespace ExportacionMetrados.Core.Metrado
@@ -30,22 +31,40 @@ namespace ExportacionMetrados.Core.Metrado
             _opciones = opciones ?? throw new ArgumentNullException(nameof(opciones));
         }
 
-        public void Exportar(ResultadoMetrado resultado, string tituloProyecto)
+        /// <summary>
+        /// Escribe el libro. Si se pasan tablas de Revit, cada una va en su propia hoja
+        /// (tal como se ve en Revit); si no, se escriben las hojas calculadas Concreto y Acero.
+        /// </summary>
+        public List<string> Exportar(ResultadoMetrado resultado, string tituloProyecto, IList<ViewSchedule> tablasRevit = null)
         {
             string ruta = _opciones.RutaArchivo;
             string carpeta = Path.GetDirectoryName(ruta);
             if (!string.IsNullOrEmpty(carpeta)) Directory.CreateDirectory(carpeta);
 
             var ordenCategorias = _opciones.Categorias.Where(c => c.Seleccionada).Select(c => c.Nombre).ToList();
+            var errores = new List<string>();
 
             using (var libro = new XLWorkbook())
             {
                 EscribirResumen(libro.Worksheets.Add("Resumen"), resultado, ordenCategorias, tituloProyecto);
-                EscribirConcreto(libro.Worksheets.Add("Concreto"), resultado, ordenCategorias);
 
-                if (_opciones.IncluirAcero)
+                if (tablasRevit != null && tablasRevit.Count > 0)
                 {
-                    EscribirAcero(libro.Worksheets.Add("Acero"), resultado, ordenCategorias);
+                    var exportadorTablas = new ExportadorExcel(new OpcionesExportacion());
+                    var nombresUsados = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Resumen" };
+                    foreach (ViewSchedule tabla in tablasRevit)
+                    {
+                        try { exportadorTablas.AgregarHoja(libro, tabla, nombresUsados); }
+                        catch (Exception ex) { errores.Add($"Tabla \"{tabla.Name}\": {ex.Message}"); }
+                    }
+                }
+                else
+                {
+                    EscribirConcreto(libro.Worksheets.Add("Concreto"), resultado, ordenCategorias);
+                    if (_opciones.IncluirAcero)
+                    {
+                        EscribirAcero(libro.Worksheets.Add("Acero"), resultado, ordenCategorias);
+                    }
                 }
 
                 if (_opciones.IncluirDetalle)
@@ -71,6 +90,8 @@ namespace ExportacionMetrados.Core.Metrado
                         "No se pudo escribir el archivo. Verifique que no esté abierto en Excel:\n" + ruta);
                 }
             }
+
+            return errores;
         }
 
         // ------------------------------------------------------------------

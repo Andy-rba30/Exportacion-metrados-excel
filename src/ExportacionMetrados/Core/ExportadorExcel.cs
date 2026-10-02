@@ -52,11 +52,7 @@ namespace ExportacionMetrados.Core
                 {
                     try
                     {
-                        TablaExtraida datos = LectorTablas.Extraer(tabla, _opciones.IncluirEncabezados);
-                        string nombreHoja = NombreHojaUnico(datos.Nombre, nombresUsados);
-                        IXLWorksheet hoja = libro.Worksheets.Add(nombreHoja);
-                        int filas = EscribirHoja(hoja, datos);
-
+                        int filas = AgregarHoja(libro, tabla, nombresUsados);
                         resultado.TablasExportadas++;
                         resultado.FilasEscritas += filas;
                     }
@@ -90,6 +86,18 @@ namespace ExportacionMetrados.Core
             }
 
             return resultado;
+        }
+
+        /// <summary>
+        /// Añade una hoja con el contenido de la tabla a un libro ya abierto.
+        /// Devuelve el número de filas de datos escritas.
+        /// </summary>
+        public int AgregarHoja(XLWorkbook libro, ViewSchedule tabla, HashSet<string> nombresUsados)
+        {
+            TablaExtraida datos = LectorTablas.Extraer(tabla, _opciones.IncluirEncabezados);
+            string nombreHoja = NombreHojaUnico(datos.Nombre, nombresUsados);
+            IXLWorksheet hoja = libro.Worksheets.Add(nombreHoja);
+            return EscribirHoja(hoja, datos);
         }
 
         /// <summary>

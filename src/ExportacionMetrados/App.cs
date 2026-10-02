@@ -72,9 +72,9 @@ namespace ExportacionMetrados
                 rutaEnsamblado,
                 typeof(MetradoAutomaticoCommand).FullName)
             {
-                ToolTip = "Calcula el concreto (m³) y el acero (kg) de vigas, columnas y otros elementos estructurales y lo exporta a Excel.",
-                LongDescription = "Lee los elementos del modelo directamente: volumen de concreto agrupado por elemento, nivel y tipo, " +
-                                  "y acero de refuerzo agrupado por elemento anfitrión, nivel y diámetro. No requiere tablas de planificación.",
+                ToolTip = "Crea en el proyecto las tablas de metrado de concreto y acero (vigas, columnas, losas...) y opcionalmente las exporta a Excel.",
+                LongDescription = "Genera una tabla de planificación de concreto y otra de acero por cada tipo de elemento, agrupadas por nivel " +
+                                  "y partición, con totales. En la misma operación puede exportarlas a Excel junto con un resumen en m³ y kg.",
                 LargeImage = CargarIcono("metrado32.png"),
                 Image = CargarIcono("metrado16.png"),
             };

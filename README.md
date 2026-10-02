@@ -84,8 +84,9 @@ Si prefiere no usar la copia automática, copie `ExportacionMetrados.addin` a
 ## Uso
 
 1. Abra el proyecto en Revit.
-2. Vaya a la pestaña **Metrados**. Hay dos botones: **Exportar a Excel** (tablas de planificación) y
-   **Metrado automático** (concreto y acero desde el modelo, ver más abajo). Pulse **Exportar a Excel**.
+2. Vaya a la pestaña **Metrados**. Hay dos botones: **Exportar a Excel** (exporta tablas de planificación
+   ya existentes) y **Metrado automático** (crea las tablas de metrado en Revit y opcionalmente las exporta,
+   ver más abajo). Pulse **Exportar a Excel**.
 3. Marque las tablas que desea exportar (si la vista activa es una tabla, aparece marcada).
    Puede filtrar por nombre o categoría y usar **Todas** / **Ninguna**.
 4. Ajuste las opciones:
@@ -100,50 +101,65 @@ y sin los caracteres que Excel no admite (`[ ] * ? / \ :`); si hay nombres repet
 
 ## Metrado automático de concreto y acero
 
-El botón **Metrado automático** no usa tablas: recorre los elementos del modelo y genera un libro con:
+El botón **Metrado automático** crea las tablas de planificación de metrado **dentro del proyecto de Revit**
+y, si se marca la opción, las exporta a Excel en la misma operación. (El botón *Exportar a Excel* es una
+función aparte para tablas que ya existen en el proyecto.)
+
+**Tablas que crea en Revit** (una de concreto y una de acero por cada tipo de elemento marcado):
+
+| Tabla | Categoría | Campos | Agrupación |
+|---|---|---|---|
+| `Metrado concreto - Vigas` | Armazón estructural | Nivel, Elemento (familia y tipo), Material, Cantidad, Longitud, Volumen | Por nivel (encabezado, pie con totales), luego tipo; total general |
+| `Metrado concreto - Columnas` | Pilares estructurales | Nivel base, Elemento, Material, Cantidad, Longitud, Volumen | Igual |
+| `Metrado concreto - Losas` | Suelos | Nivel, Elemento, Cantidad, Área, Espesor, Volumen | Igual |
+| `Metrado concreto - Cimentaciones` / `Muros` | Opcionales | Nivel, Elemento, Material, Cantidad, Área/Longitud, Espesor, Volumen | Igual |
+| `Metrado acero - <elemento>` | Armadura estructural | Partición, Elemento anfitrión, Marca anfitrión, Tipo de barra, Diámetro, N° barras, Longitud de barra, Longitud total, Peso unitario | Por partición (encabezado, pie con totales), luego diámetro; total general. Filtrada por categoría del anfitrión |
+
+- Las tablas no están desglosadas por elemento (una fila por tipo y nivel). Si quiere ver cada elemento,
+  active "Desglosar cada ejemplar" en la tabla.
+- Las tablas de concreto llevan un filtro "Material estructural contiene *Concreto*" (texto editable en la
+  ventana; use "Hormigón" si sus materiales se llaman así). Puede desactivarse.
+- **Peso del acero**: la tabla de Revit incluye la columna con el parámetro de peso por metro del tipo de
+  barra (por defecto `Bar Mass per Unit Length`, editable en la ventana). Revit no permite crear valores
+  calculados desde la API, así que la columna "Peso total = Longitud total × Peso unitario" debe añadirse una
+  sola vez a mano en la tabla (Campos → Valor calculado). Como el plugin **reutiliza** las tablas existentes
+  en lugar de recrearlas, esa columna se conserva en las siguientes ejecuciones y se exporta a Excel.
+- Si ya existe una tabla con el mismo nombre se reutiliza tal cual. La opción "Regenerar" la borra y la
+  crea de nuevo (se pierden columnas añadidas a mano y su colocación en planos).
+- Si la versión de Revit no permite filtrar el acero por categoría del anfitrión, se crea una sola tabla
+  `Metrado acero` agrupada por partición.
+
+**Exportación a Excel en la misma operación** (opcional): el libro contiene
 
 | Hoja | Contenido |
 |---|---|
-| Resumen | Concreto (m³), acero (kg) y cuantía (kg/m³) por tipo de elemento, más acero total por diámetro. |
-| Concreto | Por elemento (Vigas, Columnas, ...) → nivel → tipo: cantidad, longitud/altura (m) y volumen (m³), con subtotales por elemento y total general. |
-| Acero | Por elemento anfitrión → nivel → diámetro: número de barras, longitud total (m) y peso (kg), con subtotales y total. |
-| Concreto - Detalle | Una fila por elemento (Id, nivel, familia, tipo, marca, material, longitud, volumen) con autofiltro. |
-| Acero - Detalle | Una fila por conjunto de barras (Id, Id del anfitrión, partición, tipo, diámetro, cantidad, longitud, peso). |
+| Resumen | Concreto (m³), acero (kg) y cuantía (kg/m³) por tipo de elemento y acero total por diámetro, calculados directamente del modelo. |
+| Una hoja por tabla de Revit | El contenido de cada tabla generada, tal como se ve en Revit (incluidas las columnas que haya añadido a mano). |
+| Concreto - Detalle / Acero - Detalle | Opcional. Una fila por elemento o conjunto de barras con Id, nivel, tipo, longitudes, área, espesor, volumen y peso. |
 
-Los subtotales y totales se escriben como fórmulas de Excel, así que se recalculan si edita las filas.
+**Cómo calcula el resumen** (independiente de las tablas, leyendo el modelo):
 
-**Qué se mide y cómo**
-
-- Categorías disponibles: Vigas (Structural Framing), Columnas (Structural Columns), Losas (Floors),
-  Cimentaciones y Muros. Por defecto están marcadas Vigas, Columnas y Losas.
-- Para losas, muros y cimentaciones la hoja de concreto muestra además el área (m²) y el espesor (m).
-  Las losas arquitectónicas con material que no sea concreto quedan fuera si está activada la opción
-  "Solo material de concreto".
-- Volumen de concreto: se suma el volumen de cada material del elemento (`GetMaterialVolume`) que sea de
-  concreto. Un material se reconoce como concreto si su clase o nombre contiene "concreto", "hormigón",
-  "concrete" o "f'c", o si su activo estructural es de clase Concrete. En losas y muros compuestos esto
-  excluye acabados, aislamiento y otras capas. Si el elemento no tiene materiales asignados se usa el
+- Volumen de concreto: suma del volumen de cada material del elemento que sea de concreto (clase o nombre con
+  "concreto", "hormigón", "concrete", "f'c", o activo estructural de clase Concrete). En losas y muros
+  compuestos excluye acabados y otras capas. Si el elemento no tiene materiales asignados se usa el
   material estructural y el parámetro Volumen.
-- Opción **Solo material de concreto**: omite vigas o columnas de acero estructural, madera, etc. Los
-  elementos sin material se incluyen igualmente y se avisa.
 - Nivel: nivel de referencia (vigas), nivel base (columnas, muros) o el nivel del elemento.
-- Acero: se leen las barras (`Rebar` y `RebarInSystem`) cuyo anfitrión pertenece a las categorías marcadas.
-  La longitud se toma del parámetro **Longitud total de barra** (`Total Bar Length`), que suma todas las
-  piezas del conjunto con sus ganchos y dobleces, y no del parámetro **Longitud de barra** (`Bar Length`),
-  que es la de una sola pieza. Si el parámetro total no está disponible se calcula la longitud geométrica
-  del eje de cada posición de barra y, como último recurso, longitud de barra × cantidad. La hoja
-  "Acero - Detalle" muestra ambas longitudes y el origen usado. El peso se calcula como
-  `longitud × π·d²/4 × densidad` (7850 kg/m³ por defecto, editable). Si el tipo de barra tiene un parámetro
-  numérico llamado "Peso unitario", "Peso por metro", "Bar Weight", "Unit Weight" o "Weight per Length"
-  (en kg/m) se usa ese valor en lugar de la fórmula.
-- Mallas electrosoldadas (Fabric Sheet), habituales en losas: se cuentan con la masa de la hoja cortada que
-  calcula Revit (masa unitaria del tipo de malla × área cortada). Aparecen en la hoja de acero con el
-  diámetro "Malla", su área en m² y su peso en kg.
-- El refuerzo por área y por trayectoria se cuenta a través de las barras que genera (`RebarInSystem`).
+- Acero: barras (`Rebar`), refuerzo por área y trayectoria (`RebarInSystem`) y mallas electrosoldadas
+  (`FabricSheet`) cuyo anfitrión pertenece a las categorías marcadas. La longitud se toma del parámetro
+  **Longitud total de barra** (`Total Bar Length`), que suma todas las piezas del conjunto con sus ganchos y
+  dobleces, y no de **Longitud de barra** (`Bar Length`), que es la de una sola pieza. Si falta, se calcula
+  la longitud geométrica del eje de cada posición de barra y, como último recurso, longitud de barra ×
+  cantidad.
+- Peso: `Longitud total × peso por metro`. El peso por metro se lee del parámetro del tipo de barra indicado
+  en la ventana (`Bar Mass per Unit Length` por defecto; se respetan sus unidades si es de disciplina
+  "masa por unidad de longitud"). Si el tipo no tiene ese parámetro se calcula como π·d²/4 × densidad
+  (7850 kg/m³ por defecto). Las mallas usan la masa de hoja cortada que calcula Revit.
 
 ## Notas técnicas
 
-- El comando se declara con `TransactionMode.ReadOnly`: no modifica el modelo.
+- El comando de exportación se declara con `TransactionMode.ReadOnly`: no modifica el modelo. El metrado
+  automático usa una transacción propia ("Metrado automático") solo para crear las tablas; se puede deshacer
+  con Ctrl+Z.
 - Las filas completamente en blanco (separadores entre grupos) se omiten.
 - Si una tabla tiene desactivada la opción "Mostrar encabezados", se usan los encabezados de columna
   definidos en los campos de la tabla.

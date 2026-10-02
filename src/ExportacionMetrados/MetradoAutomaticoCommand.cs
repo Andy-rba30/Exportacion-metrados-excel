@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -9,10 +11,10 @@ using ExportacionMetrados.UI;
 namespace ExportacionMetrados
 {
     /// <summary>
-    /// Comando que calcula automáticamente el metrado de concreto y acero del
-    /// modelo (vigas, columnas, etc.) y lo exporta a Excel.
+    /// Comando que genera en el proyecto las tablas de planificación de metrado
+    /// (concreto y acero) y, opcionalmente, las exporta a Excel en la misma operación.
     /// </summary>
-    [Transaction(TransactionMode.ReadOnly)]
+    [Transaction(TransactionMode.Manual)]
     [Regeneration(RegenerationOption.Manual)]
     public class MetradoAutomaticoCommand : IExternalCommand
     {
@@ -38,21 +40,39 @@ namespace ExportacionMetrados
                 if (ventana.ShowDialog() != true) return Result.Cancelled;
 
                 OpcionesMetrado opciones = ventana.Opciones;
+                var advertencias = new List<string>();
 
-                var calculador = new CalculadorMetrado(doc, opciones);
-                ResultadoMetrado resultado = calculador.Calcular();
-
-                if (resultado.Concreto.Count == 0 && resultado.Acero.Count == 0)
+                // 1. Tablas de planificación en Revit (requiere transacción).
+                List<ViewSchedule> tablas;
+                GeneradorTablasRevit generador;
+                using (var t = new Transaction(doc, "Metrado automático"))
                 {
-                    TaskDialog.Show("Metrado automático",
-                        "No se encontraron elementos de concreto ni acero en las categorías seleccionadas.\n\n" +
-                        string.Join("\n", resultado.Advertencias));
-                    return Result.Cancelled;
+                    t.Start();
+                    generador = new GeneradorTablasRevit(doc, opciones, uidoc.ActiveView?.Id);
+                    tablas = generador.Generar();
+                    t.Commit();
+                }
+                advertencias.AddRange(generador.Advertencias);
+
+                // 2. Cálculo directo del modelo (resumen con m³ y kg).
+                ResultadoMetrado resultado = new CalculadorMetrado(doc, opciones).Calcular();
+                advertencias.AddRange(resultado.Advertencias);
+
+                // 3. Excel opcional: hojas con las tablas de Revit + resumen.
+                if (opciones.ExportarExcel)
+                {
+                    var errores = new ExportadorMetrado(opciones).Exportar(resultado, doc.Title, tablas);
+                    advertencias.AddRange(errores);
                 }
 
-                new ExportadorMetrado(opciones).Exportar(resultado, doc.Title);
+                // 4. Abrir la primera tabla en Revit.
+                if (opciones.AbrirTablaAlTerminar && tablas.Count > 0)
+                {
+                    try { uidoc.ActiveView = tablas[0]; }
+                    catch (Exception) { /* no es crítico */ }
+                }
 
-                MostrarResumen(resultado, opciones);
+                MostrarResumen(generador, tablas, resultado, opciones, advertencias);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -70,32 +90,47 @@ namespace ExportacionMetrados
             return nombre + " - Metrado concreto y acero.xlsx";
         }
 
-        private static void MostrarResumen(ResultadoMetrado resultado, OpcionesMetrado opciones)
+        private static void MostrarResumen(GeneradorTablasRevit generador, List<ViewSchedule> tablas,
+            ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias)
         {
-            double m3 = 0;
-            foreach (var c in resultado.Concreto) m3 += c.VolumenM3;
-            double kg = 0;
-            foreach (var a in resultado.Acero) kg += a.PesoKg;
+            double m3 = resultado.Concreto.Sum(c => c.VolumenM3);
+            double kg = resultado.Acero.Sum(a => a.PesoKg);
+
+            string contenido =
+                $"Tablas creadas en Revit: {generador.TablasCreadas.Count}\n" +
+                $"Tablas existentes reutilizadas: {generador.TablasReutilizadas.Count}\n\n" +
+                $"Concreto: {resultado.Concreto.Count} elementos, {m3:N3} m³\n" +
+                $"Acero: {resultado.Acero.Count} conjuntos de barras, {kg:N2} kg\n";
+
+            if (opciones.ExportarExcel)
+            {
+                contenido += $"\nArchivo Excel:\n{opciones.RutaArchivo}";
+            }
 
             var dialogo = new TaskDialog("Metrado automático")
             {
-                MainInstruction = resultado.Advertencias.Count == 0
-                    ? "Metrado completado"
-                    : "Metrado completado con advertencias",
-                MainContent =
-                    $"Elementos de concreto: {resultado.Concreto.Count}  ({m3:N3} m³)\n" +
-                    $"Conjuntos de barras: {resultado.Acero.Count}  ({kg:N2} kg)\n\n" +
-                    $"Archivo:\n{opciones.RutaArchivo}",
+                MainInstruction = advertencias.Count == 0 ? "Metrado completado" : "Metrado completado con advertencias",
+                MainContent = contenido,
                 CommonButtons = TaskDialogCommonButtons.Close,
             };
 
-            if (resultado.Advertencias.Count > 0)
+            var detalle = new List<string>();
+            if (tablas.Count > 0)
             {
-                dialogo.ExpandedContent = string.Join("\n", resultado.Advertencias);
+                detalle.Add("Tablas:");
+                detalle.AddRange(tablas.Select(t => "  • " + t.Name));
             }
-            if (opciones.AbrirAlTerminar)
+            if (advertencias.Count > 0)
             {
-                dialogo.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Abrir el archivo");
+                detalle.Add("");
+                detalle.Add("Advertencias:");
+                detalle.AddRange(advertencias.Select(a => "  • " + a));
+            }
+            if (detalle.Count > 0) dialogo.ExpandedContent = string.Join("\n", detalle);
+
+            if (opciones.ExportarExcel && opciones.AbrirAlTerminar)
+            {
+                dialogo.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Abrir el archivo Excel");
             }
 
             if (dialogo.Show() == TaskDialogResult.CommandLink1)

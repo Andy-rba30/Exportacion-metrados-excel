@@ -18,7 +18,19 @@ namespace ExportacionMetrados.Core.Metrado
         private readonly Dictionary<ElementId, Level> _cacheNiveles = new Dictionary<ElementId, Level>();
 
         private static readonly string[] PalabrasConcreto = { "concret", "hormig", "f'c", "f´c", "fc=", "fc " };
-        private static readonly string[] NombresParametroPesoBarra = { "Peso unitario", "Peso por metro", "Bar Weight", "Unit Weight", "Weight per Length" };
+        /// <summary>Nombres habituales del parámetro de peso por metro en los tipos de barra.</summary>
+        public static readonly string[] NombresParametroPesoBarra =
+        {
+            "Bar Mass per Unit Length", "Masa de barra por unidad de longitud", "Masa por unidad de longitud",
+            "Peso unitario", "Peso por metro", "Peso por unidad de longitud",
+            "Bar Weight", "Unit Weight", "Weight per Length", "Mass per Unit Length",
+        };
+
+        /// <summary>Nombres habituales de un parámetro de masa total en la instancia de barra.</summary>
+        private static readonly string[] NombresParametroMasaTotal =
+        {
+            "Total Bar Mass", "Masa total de barra", "Masa total de barras", "Peso total",
+        };
 
         public CalculadorMetrado(Document doc, OpcionesMetrado opciones)
         {
@@ -407,8 +419,12 @@ namespace ExportacionMetrados.Core.Metrado
             double longitudM = AMetros(longitudTotalPies);
             double diametroMm = AMilimetros(diametroPies);
 
-            double pesoPorMetro = ObtenerPesoPorMetro(tipoBarra, diametroMm);
-            double pesoKg = longitudM * pesoPorMetro;
+            double pesoKg = ObtenerMasaTotal(barra);
+            if (pesoKg <= 0)
+            {
+                double pesoPorMetro = ObtenerPesoPorMetro(tipoBarra, diametroMm);
+                pesoKg = longitudM * pesoPorMetro;
+            }
 
             Level nivel = ObtenerNivel(host);
 
@@ -468,13 +484,16 @@ namespace ExportacionMetrados.Core.Metrado
         {
             if (tipoBarra != null)
             {
-                foreach (string nombre in NombresParametroPesoBarra)
+                var nombres = new List<string>();
+                if (!string.IsNullOrWhiteSpace(_opciones.NombreParametroPeso)) nombres.Add(_opciones.NombreParametroPeso.Trim());
+                nombres.AddRange(NombresParametroPesoBarra);
+
+                foreach (string nombre in nombres)
                 {
                     Parameter p = tipoBarra.LookupParameter(nombre);
-                    if (p != null && p.StorageType == StorageType.Double && p.AsDouble() > 0)
+                    if (p != null && p.StorageType == StorageType.Double && p.HasValue && p.AsDouble() > 0)
                     {
-                        // Se asume que el parámetro está en kg/m (parámetro compartido numérico).
-                        return p.AsDouble();
+                        return AKilogramosPorMetro(p);
                     }
                 }
             }
@@ -482,6 +501,46 @@ namespace ExportacionMetrados.Core.Metrado
             double dM = diametroMm / 1000.0;
             double areaM2 = Math.PI * dM * dM / 4.0;
             return areaM2 * _opciones.DensidadAcero;
+        }
+
+        /// <summary>Masa total del conjunto de barras si Revit la expone como parámetro (kg).</summary>
+        private static double ObtenerMasaTotal(Element barra)
+        {
+            foreach (string nombre in NombresParametroMasaTotal)
+            {
+                Parameter p = barra.LookupParameter(nombre);
+                if (p != null && p.StorageType == StorageType.Double && p.HasValue && p.AsDouble() > 0)
+                {
+                    return AKilogramos(p.AsDouble());
+                }
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Convierte un parámetro de peso por metro a kg/m. Si el parámetro tiene
+        /// disciplina "masa por unidad de longitud" se convierte desde las unidades
+        /// internas; si es un número sin unidades se asume que ya está en kg/m.
+        /// </summary>
+        private static double AKilogramosPorMetro(Parameter p)
+        {
+            try
+            {
+#if REVIT2021
+                ForgeTypeId espec = p.Definition.GetSpecTypeId();
+#else
+                ForgeTypeId espec = p.Definition.GetDataType();
+#endif
+                if (espec != null && espec.Equals(SpecTypeId.MassPerUnitLength))
+                {
+                    return UnitUtils.ConvertFromInternalUnits(p.AsDouble(), UnitTypeId.KilogramsPerMeter);
+                }
+            }
+            catch (Exception)
+            {
+                // Sin información de unidades: se asume kg/m.
+            }
+            return p.AsDouble();
         }
 
         // ------------------------------------------------------------------

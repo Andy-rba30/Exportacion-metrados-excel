@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Metrado automático de concreto y acero"
-        Width="560" SizeToContent="Height" ResizeMode="NoResize"
+        Width="600" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         FontSize="12">
@@ -16,13 +16,17 @@
         <Style TargetType="CheckBox">
             <Setter Property="Margin" Value="0,3" />
         </Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
     </Window.Resources>
 
     <StackPanel Margin="12">
         <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="0,0,0,8"
-                   Text="Recorre el modelo y calcula el volumen de concreto por elemento, nivel y tipo, y el acero de refuerzo por elemento anfitrión, nivel y diámetro. No necesita tablas de planificación." />
+                   Text="Crea en el proyecto las tablas de planificación de metrado (una de concreto y una de acero por cada tipo de elemento) y, si lo desea, las exporta a Excel en la misma operación." />
 
-        <GroupBox Header="Elementos de concreto a metrar" Padding="8,4">
+        <GroupBox Header="Elementos a metrar">
             <ItemsControl x:Name="LstCategorias">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -37,28 +41,47 @@
             </ItemsControl>
         </GroupBox>
 
-        <GroupBox Header="Opciones" Padding="8,4" Margin="0,8,0,0">
+        <GroupBox Header="Tablas en Revit">
             <StackPanel>
-                <CheckBox x:Name="ChkSoloConcreto" Content="Solo elementos con material de concreto (omite acero estructural, madera, etc.)" IsChecked="True" />
-                <CheckBox x:Name="ChkAcero" Content="Incluir acero de refuerzo (barras alojadas en los elementos seleccionados)" IsChecked="True" />
-                <CheckBox x:Name="ChkDetalle" Content="Incluir hojas de detalle elemento por elemento" IsChecked="True" />
-                <CheckBox x:Name="ChkAbrir" Content="Ofrecer abrir el archivo al terminar" IsChecked="True" />
-                <DockPanel Margin="0,4,0,0">
-                    <TextBlock Text="Densidad del acero (kg/m³):" VerticalAlignment="Center" Margin="0,0,6,0" />
-                    <TextBox x:Name="TxtDensidad" Text="7850" Width="80" HorizontalAlignment="Left" VerticalContentAlignment="Center" />
+                <CheckBox x:Name="ChkAcero" Content="Crear también las tablas de acero de refuerzo" IsChecked="True" />
+                <CheckBox x:Name="ChkRegenerar" IsChecked="False">
+                    <TextBlock TextWrapping="Wrap" Text="Regenerar las tablas que ya existan (se borran y se crean de nuevo; se pierden columnas añadidas a mano y su ubicación en planos)" />
+                </CheckBox>
+                <DockPanel Margin="0,3">
+                    <CheckBox x:Name="ChkFiltrarMaterial" Content="Filtrar por material estructural que contenga:" IsChecked="True" VerticalAlignment="Center" />
+                    <TextBox x:Name="TxtMaterial" Text="Concreto" Width="140" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalContentAlignment="Center" />
                 </DockPanel>
+                <DockPanel Margin="0,3">
+                    <TextBlock Text="Parámetro de peso unitario de la barra (kg/m):" VerticalAlignment="Center" />
+                    <TextBox x:Name="TxtParametroPeso" Text="Bar Mass per Unit Length" Width="200" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalContentAlignment="Center" />
+                </DockPanel>
+                <CheckBox x:Name="ChkAbrirTabla" Content="Abrir la primera tabla en Revit al terminar" IsChecked="True" />
             </StackPanel>
         </GroupBox>
 
-        <DockPanel Margin="0,10,0,0">
-            <TextBlock Text="Archivo:" VerticalAlignment="Center" Margin="0,0,6,0" />
-            <Button DockPanel.Dock="Right" Content="Examinar..." Click="BtnExaminar_Click" />
-            <TextBox x:Name="TxtRuta" VerticalContentAlignment="Center" />
-        </DockPanel>
+        <GroupBox Header="Excel">
+            <StackPanel>
+                <CheckBox x:Name="ChkExcel" Content="Exportar también a Excel en la misma operación" IsChecked="True" Checked="ChkExcel_Changed" Unchecked="ChkExcel_Changed" />
+                <StackPanel x:Name="PnlExcel" Margin="20,0,0,0">
+                    <CheckBox x:Name="ChkSoloConcreto" Content="Resumen: solo elementos con material de concreto" IsChecked="True" />
+                    <CheckBox x:Name="ChkDetalle" Content="Incluir hojas de detalle elemento por elemento" IsChecked="True" />
+                    <CheckBox x:Name="ChkAbrir" Content="Ofrecer abrir el archivo al terminar" IsChecked="True" />
+                    <DockPanel Margin="0,3">
+                        <TextBlock Text="Densidad del acero si falta el parámetro de peso (kg/m³):" VerticalAlignment="Center" />
+                        <TextBox x:Name="TxtDensidad" Text="7850" Width="70" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalContentAlignment="Center" />
+                    </DockPanel>
+                    <DockPanel Margin="0,6,0,0">
+                        <TextBlock Text="Archivo:" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <Button DockPanel.Dock="Right" Content="Examinar..." Click="BtnExaminar_Click" />
+                        <TextBox x:Name="TxtRuta" VerticalContentAlignment="Center" />
+                    </DockPanel>
+                </StackPanel>
+            </StackPanel>
+        </GroupBox>
 
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
             <Button Content="Cancelar" IsCancel="True" />
-            <Button Content="Calcular y exportar" IsDefault="True" Click="BtnExportar_Click" FontWeight="Bold" />
+            <Button Content="Generar metrado" IsDefault="True" Click="BtnExportar_Click" FontWeight="Bold" />
         </StackPanel>
     </StackPanel>
 </Window>
