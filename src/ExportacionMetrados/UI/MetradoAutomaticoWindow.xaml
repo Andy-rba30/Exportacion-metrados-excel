@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Metrado automático de concreto y acero"
         Width="600" SizeToContent="Height" ResizeMode="NoResize"
+        MaxHeight="{x:Static SystemParameters.MaximizedPrimaryScreenHeight}"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
         FontSize="12">
@@ -22,76 +23,102 @@
         </Style>
     </Window.Resources>
 
-    <StackPanel Margin="12">
-        <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="0,0,0,8"
-                   Text="Crea en el proyecto las tablas de planificación de metrado (una de concreto y una de acero por cada tipo de elemento) y, si lo desea, las exporta a Excel en la misma operación." />
+    <!-- Con desplazamiento por si la ventana no cabe en pantallas bajas. -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="12">
+            <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="0,0,0,8"
+                       Text="Crea en el proyecto las tablas de planificación de metrado (una de concreto y una de acero por cada tipo de elemento) y, si lo desea, las exporta a Excel en la misma operación." />
 
-        <GroupBox Header="Elementos a metrar">
-            <ItemsControl x:Name="LstCategorias">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <UniformGrid Columns="3" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <CheckBox Content="{Binding Nombre}" IsChecked="{Binding Seleccionada, Mode=TwoWay}" />
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </GroupBox>
+            <GroupBox Header="Elementos a metrar">
+                <ItemsControl x:Name="LstCategorias">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <UniformGrid Columns="3" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox Content="{Binding Nombre}" IsChecked="{Binding Seleccionada, Mode=TwoWay}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </GroupBox>
 
-        <GroupBox Header="Tablas en Revit">
-            <StackPanel>
-                <CheckBox x:Name="ChkAceroEstructural" Content="Separar en tablas aparte los elementos metálicos (acero estructural), metrados por peso" IsChecked="True" />
-                <DockPanel Margin="20,3,0,3">
-                    <TextBlock Text="Densidad del acero al carbono de los perfiles (kg/m³):" VerticalAlignment="Center" />
-                    <TextBox x:Name="TxtDensidadPerfiles" Text="7850" Width="70" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalContentAlignment="Center"
-                             ToolTip="Peso del perfil = longitud × área de sección × densidad. Se escribe en el parámetro &quot;Metrado - Peso (kg)&quot; de cada viga o columna metálica." />
-                </DockPanel>
-                <CheckBox x:Name="ChkConservarMaterial" Content="Conservar la clasificación &quot;Metrado - Material&quot; ya escrita en los elementos" IsChecked="False" />
-                <CheckBox x:Name="ChkParticiones" Content="Rellenar la partición vacía del acero según el elemento anfitrión (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS)" IsChecked="True" />
-                <CheckBox x:Name="ChkSobrescribirParticiones" Content="Sobrescribir también las particiones que ya tengan texto" IsChecked="False" Margin="20,3,0,3" />
-                <CheckBox x:Name="ChkAcero" Content="Crear las tablas de acero de refuerzo por elemento" IsChecked="True" />
-                <CheckBox x:Name="ChkAceroGeneral" Content="Crear además una tabla general de acero de refuerzo (partición → elemento → tipo)" IsChecked="True" />
-                <CheckBox x:Name="ChkRegenerar" IsChecked="False">
-                    <TextBlock TextWrapping="Wrap" Text="Regenerar las tablas que ya existan (se borran y se crean de nuevo; se pierden columnas añadidas a mano y su ubicación en planos)" />
-                </CheckBox>
-                <DockPanel Margin="0,3">
-                    <CheckBox x:Name="ChkFiltrarMaterial" Content="Respaldo: texto que identifica los materiales de concreto:" IsChecked="True" VerticalAlignment="Center" />
-                    <TextBox x:Name="TxtMaterial" Text="Concreto" Width="140" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalContentAlignment="Center" />
-                </DockPanel>
-                <DockPanel Margin="0,3">
-                    <TextBlock Text="Parámetro de peso unitario de la barra (kg/m):" VerticalAlignment="Center" />
-                    <TextBox x:Name="TxtParametroPeso" Text="Bar Mass per Unit Length" Width="200" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalContentAlignment="Center" />
-                </DockPanel>
-                <CheckBox x:Name="ChkAbrirTabla" Content="Abrir la primera tabla en Revit al terminar" IsChecked="True" />
-            </StackPanel>
-        </GroupBox>
-
-        <GroupBox Header="Excel">
-            <StackPanel>
-                <CheckBox x:Name="ChkExcel" Content="Exportar también a Excel en la misma operación" IsChecked="True" Checked="ChkExcel_Changed" Unchecked="ChkExcel_Changed" />
-                <StackPanel x:Name="PnlExcel" Margin="20,0,0,0">
-                    <CheckBox x:Name="ChkSoloConcreto" Content="Resumen: solo elementos con material de concreto" IsChecked="True" />
-                    <CheckBox x:Name="ChkDetalle" Content="Incluir hojas de detalle elemento por elemento" IsChecked="True" />
-                    <CheckBox x:Name="ChkAbrir" Content="Ofrecer abrir el archivo al terminar" IsChecked="True" />
-                    <DockPanel Margin="0,3">
-                        <TextBlock Text="Densidad del acero si falta el parámetro de peso (kg/m³):" VerticalAlignment="Center" />
-                        <TextBox x:Name="TxtDensidad" Text="7850" Width="70" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalContentAlignment="Center" />
+            <GroupBox Header="Tablas en Revit">
+                <StackPanel>
+                    <CheckBox x:Name="ChkAceroEstructural" Content="Separar en tablas aparte los elementos metálicos (acero estructural), metrados por peso" IsChecked="True" />
+                    <CheckBox x:Name="ChkConservarMaterial" Content="Conservar la clasificación &quot;Metrado - Material&quot; ya escrita en los elementos" IsChecked="False" />
+                    <CheckBox x:Name="ChkParticiones" Content="Rellenar la partición vacía del acero según el elemento anfitrión (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS)" IsChecked="True" />
+                    <CheckBox x:Name="ChkSobrescribirParticiones" Content="Sobrescribir también las particiones que ya tengan texto" IsChecked="False" Margin="20,3,0,3" />
+                    <CheckBox x:Name="ChkAcero" Content="Crear las tablas de acero de refuerzo por elemento" IsChecked="True" />
+                    <CheckBox x:Name="ChkAceroGeneral" Content="Crear además una tabla general de acero de refuerzo (partición → elemento → tipo)" IsChecked="True" />
+                    <CheckBox x:Name="ChkRegenerar" IsChecked="False">
+                        <TextBlock TextWrapping="Wrap" Text="Regenerar las tablas que ya existan (se borran y se crean de nuevo; se pierden columnas añadidas a mano y su ubicación en planos)" />
+                    </CheckBox>
+                    <DockPanel Margin="0,3"
+                               ToolTip="Las tablas se filtran por el parámetro &quot;Metrado - Material&quot; que escribe el plugin (CONCRETO / ACERO ESTRUCTURAL...). Si ese parámetro no se puede crear o la tabla no admite filtrarlo, se usa este respaldo: las tablas de concreto muestran los elementos cuyo material estructural contiene este texto y las de acero estructural, los que no lo contienen.">
+                        <CheckBox x:Name="ChkFiltrarMaterial" IsChecked="True" VerticalAlignment="Center"
+                                  Content="Respaldo (si falla &quot;Metrado - Material&quot;): el material de concreto contiene" />
+                        <TextBox x:Name="TxtMaterial" Text="Concreto" Width="110" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalContentAlignment="Center" />
                     </DockPanel>
-                    <DockPanel Margin="0,6,0,0">
-                        <TextBlock Text="Archivo:" VerticalAlignment="Center" Margin="0,0,6,0" />
-                        <Button DockPanel.Dock="Right" Content="Examinar..." Click="BtnExaminar_Click" />
-                        <TextBox x:Name="TxtRuta" VerticalContentAlignment="Center" />
-                    </DockPanel>
+                    <CheckBox x:Name="ChkAbrirTabla" Content="Abrir la primera tabla en Revit al terminar" IsChecked="True" />
                 </StackPanel>
-            </StackPanel>
-        </GroupBox>
+            </GroupBox>
 
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
-            <Button Content="Cancelar" IsCancel="True" />
-            <Button Content="Generar metrado" IsDefault="True" Click="BtnExportar_Click" FontWeight="Bold" />
+            <!-- Estos valores alimentan el parámetro "Metrado - Peso (kg)" que se escribe en Revit,
+                 por eso están fuera del grupo Excel y siempre activos. -->
+            <GroupBox Header="Cálculo del peso en kg (parámetro &quot;Metrado - Peso (kg)&quot;, tablas de Revit y Excel)">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Margin="0,3" VerticalAlignment="Center"
+                               Text="Parámetro de peso por metro del tipo de barra (kg/m):" />
+                    <TextBox Grid.Row="0" Grid.Column="1" x:Name="TxtParametroPeso" Text="Bar Mass per Unit Length" Width="160" Margin="8,3,0,3"
+                             HorizontalAlignment="Left" VerticalContentAlignment="Center"
+                             ToolTip="Nombre del parámetro del tipo de barra que contiene el peso por metro. Si no existe, el peso de la armadura se calcula con π·d²/4 × densidad del acero de refuerzo." />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,3" VerticalAlignment="Center"
+                               Text="Densidad del acero de refuerzo si falta ese parámetro (kg/m³):" />
+                    <TextBox Grid.Row="1" Grid.Column="1" x:Name="TxtDensidad" Text="7850" Width="70" Margin="8,3,0,3"
+                             HorizontalAlignment="Left" VerticalContentAlignment="Center"
+                             ToolTip="Solo se usa en las armaduras cuyo tipo de barra no tiene parámetro de peso por metro: peso = longitud total × π·d²/4 × densidad." />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,3" VerticalAlignment="Center"
+                               Text="Densidad del acero al carbono de los perfiles metálicos (kg/m³):" />
+                    <TextBox Grid.Row="2" Grid.Column="1" x:Name="TxtDensidadPerfiles" Text="7850" Width="70" Margin="8,3,0,3"
+                             HorizontalAlignment="Left" VerticalContentAlignment="Center"
+                             ToolTip="Peso del perfil = longitud × área de sección × densidad. Se escribe en el parámetro &quot;Metrado - Peso (kg)&quot; de cada viga o columna metálica." />
+                </Grid>
+            </GroupBox>
+
+            <GroupBox Header="Excel">
+                <StackPanel>
+                    <CheckBox x:Name="ChkExcel" Content="Exportar también a Excel en la misma operación" IsChecked="True" Checked="ChkExcel_Changed" Unchecked="ChkExcel_Changed" />
+                    <StackPanel x:Name="PnlExcel" Margin="20,0,0,0">
+                        <CheckBox x:Name="ChkSoloConcreto" Content="Resumen: solo elementos con material de concreto" IsChecked="True" />
+                        <CheckBox x:Name="ChkDetalle" Content="Incluir hojas de detalle elemento por elemento" IsChecked="True" />
+                        <CheckBox x:Name="ChkAbrir" Content="Ofrecer abrir el archivo al terminar" IsChecked="True" />
+                        <DockPanel Margin="0,6,0,0">
+                            <TextBlock Text="Archivo:" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <Button DockPanel.Dock="Right" Content="Examinar..." Click="BtnExaminar_Click" />
+                            <TextBox x:Name="TxtRuta" VerticalContentAlignment="Center" />
+                        </DockPanel>
+                    </StackPanel>
+                </StackPanel>
+            </GroupBox>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
+                <Button Content="Cancelar" IsCancel="True" />
+                <Button Content="Generar metrado" IsDefault="True" Click="BtnExportar_Click" FontWeight="Bold" />
+            </StackPanel>
         </StackPanel>
-    </StackPanel>
+    </ScrollViewer>
 </Window>

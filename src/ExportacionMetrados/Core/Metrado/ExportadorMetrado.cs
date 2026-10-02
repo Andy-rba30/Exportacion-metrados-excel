@@ -84,19 +84,7 @@ namespace ExportacionMetrados.Core.Metrado
                     }
                 }
 
-                string temporal = ruta + ".tmp";
-                libro.SaveAs(temporal);
-                try
-                {
-                    if (File.Exists(ruta)) File.Delete(ruta);
-                    File.Move(temporal, ruta);
-                }
-                catch (IOException)
-                {
-                    File.Delete(temporal);
-                    throw new IOException(
-                        "No se pudo escribir el archivo. Verifique que no esté abierto en Excel:\n" + ruta);
-                }
+                ExportadorExcel.GuardarLibro(libro, ruta);
             }
 
             return errores;
@@ -254,8 +242,9 @@ namespace ExportacionMetrados.Core.Metrado
                 }
 
                 int primera = fila;
+                bool porNiveles = AgruparPorNivel(cat);
                 var porNivel = elementos
-                    .GroupBy(e => new { e.Nivel, e.ElevacionNivel })
+                    .GroupBy(e => new { Nivel = porNiveles ? e.Nivel : string.Empty, ElevacionNivel = porNiveles ? e.ElevacionNivel : 0.0 })
                     .OrderBy(g => g.Key.ElevacionNivel)
                     .ThenBy(g => g.Key.Nivel);
 
@@ -337,8 +326,9 @@ namespace ExportacionMetrados.Core.Metrado
                 Encabezado(hoja, fila++, columnas);
 
                 int primera = fila;
+                bool porNiveles = AgruparPorNivel(cat);
                 var porNivel = perfiles
-                    .GroupBy(e => new { e.Nivel, e.ElevacionNivel })
+                    .GroupBy(e => new { Nivel = porNiveles ? e.Nivel : string.Empty, ElevacionNivel = porNiveles ? e.ElevacionNivel : 0.0 })
                     .OrderBy(g => g.Key.ElevacionNivel)
                     .ThenBy(g => g.Key.Nivel);
 
@@ -585,6 +575,13 @@ namespace ExportacionMetrados.Core.Metrado
         // ------------------------------------------------------------------
         // Estilos
         // ------------------------------------------------------------------
+
+        /// <summary>
+        /// True si la categoría se agrupa por nivel en las hojas. Vigas y cimentaciones no
+        /// (igual que en las tablas de Revit): se agrupan solo por tipo.
+        /// </summary>
+        private bool AgruparPorNivel(string categoria) =>
+            _opciones.Categorias.FirstOrDefault(c => c.Nombre == categoria)?.AgruparPorNivel ?? true;
 
         private static string NombreTipo(string familia, string tipo)
         {

@@ -68,24 +68,40 @@ namespace ExportacionMetrados.Core
                         "No se pudo exportar ninguna tabla.\n" + string.Join("\n", resultado.Errores));
                 }
 
-                // Guardar en archivo temporal y luego mover, para no dejar un .xlsx
-                // corrupto si falla la escritura (p. ej. archivo abierto en Excel).
-                string temporal = rutaArchivo + ".tmp";
-                libro.SaveAs(temporal);
-                try
-                {
-                    if (File.Exists(rutaArchivo)) File.Delete(rutaArchivo);
-                    File.Move(temporal, rutaArchivo);
-                }
-                catch (IOException)
-                {
-                    File.Delete(temporal);
-                    throw new IOException(
-                        "No se pudo escribir el archivo. Verifique que no esté abierto en Excel:\n" + rutaArchivo);
-                }
+                GuardarLibro(libro, rutaArchivo);
             }
 
             return resultado;
+        }
+
+        /// <summary>
+        /// Guarda el libro de forma segura: primero en un archivo temporal de la misma
+        /// carpeta y luego lo mueve a la ruta final, para no dejar un .xlsx corrupto si
+        /// falla la escritura (p. ej. archivo abierto en Excel). El temporal lleva
+        /// extensión .xlsx porque ClosedXML rechaza cualquier otra al guardar.
+        /// </summary>
+        public static void GuardarLibro(XLWorkbook libro, string ruta)
+        {
+            if (libro == null) throw new ArgumentNullException(nameof(libro));
+            if (string.IsNullOrWhiteSpace(ruta))
+                throw new ArgumentException("Debe indicar la ruta del archivo de salida.", nameof(ruta));
+
+            string carpeta = Path.GetDirectoryName(ruta);
+            if (!string.IsNullOrEmpty(carpeta)) Directory.CreateDirectory(carpeta);
+
+            string temporal = Path.ChangeExtension(ruta, "~tmp.xlsx");
+            libro.SaveAs(temporal);
+            try
+            {
+                if (File.Exists(ruta)) File.Delete(ruta);
+                File.Move(temporal, ruta);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                try { File.Delete(temporal); } catch (Exception) { }
+                throw new IOException(
+                    "No se pudo escribir el archivo. Verifique que no esté abierto en Excel:\n" + ruta, ex);
+            }
         }
 
         /// <summary>

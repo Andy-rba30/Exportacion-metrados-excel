@@ -105,7 +105,8 @@ namespace ExportacionMetrados
             }
             catch (Exception ex)
             {
-                message = ex.Message;
+                // El error se muestra aquí; no se devuelve en "message" para que Revit
+                // no lo repita en su diálogo "Error - cannot be ignored".
                 TaskDialog.Show("Metrado automático", "Ocurrió un error durante el metrado:\n\n" + ex.Message);
                 return Result.Failed;
             }

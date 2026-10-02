@@ -52,6 +52,17 @@ namespace ExportacionMetrados.UI
             if (PnlExcel != null) PnlExcel.IsEnabled = ChkExcel.IsChecked == true;
         }
 
+        /// <summary>Lee una densidad (kg/m³) de la caja; admite coma o punto decimal.</summary>
+        private bool LeerDensidad(System.Windows.Controls.TextBox caja, string mensaje, out double valor)
+        {
+            string texto = caja.Text?.Trim().Replace(',', '.');
+            if (double.TryParse(texto, NumberStyles.Float, CultureInfo.InvariantCulture, out valor) && valor > 0) return true;
+
+            MessageBox.Show(this, mensaje, Title, MessageBoxButton.OK, MessageBoxImage.Warning);
+            caja.Focus();
+            return false;
+        }
+
         private void BtnExportar_Click(object sender, RoutedEventArgs e)
         {
             if (!_opciones.Categorias.Any(c => c.Seleccionada))
@@ -62,14 +73,10 @@ namespace ExportacionMetrados.UI
 
             bool exportarExcel = ChkExcel.IsChecked == true;
             string ruta = TxtRuta.Text?.Trim();
-            double densidad = 7850;
 
-            string textoDensidadPerfiles = TxtDensidadPerfiles.Text?.Trim().Replace(',', '.');
-            if (!double.TryParse(textoDensidadPerfiles, NumberStyles.Float, CultureInfo.InvariantCulture, out double densidadPerfiles) || densidadPerfiles <= 0)
-            {
-                MessageBox.Show(this, "La densidad del acero al carbono debe ser un número mayor que cero.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
+            // Las densidades se usan para escribir "Metrado - Peso (kg)" en Revit, se exporte o no a Excel.
+            if (!LeerDensidad(TxtDensidad, "La densidad del acero de refuerzo debe ser un número mayor que cero.", out double densidad)) return;
+            if (!LeerDensidad(TxtDensidadPerfiles, "La densidad del acero al carbono de los perfiles debe ser un número mayor que cero.", out double densidadPerfiles)) return;
 
             if (exportarExcel)
             {
@@ -82,13 +89,6 @@ namespace ExportacionMetrados.UI
                 if (ruta.IndexOfAny(Path.GetInvalidPathChars()) >= 0)
                 {
                     MessageBox.Show(this, "La ruta contiene caracteres no válidos.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                string textoDensidad = TxtDensidad.Text?.Trim().Replace(',', '.');
-                if (!double.TryParse(textoDensidad, NumberStyles.Float, CultureInfo.InvariantCulture, out densidad) || densidad <= 0)
-                {
-                    MessageBox.Show(this, "La densidad del acero debe ser un número mayor que cero.", Title, MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
 

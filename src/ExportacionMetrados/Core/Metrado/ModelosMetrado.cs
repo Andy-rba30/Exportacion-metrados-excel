@@ -26,6 +26,14 @@ namespace ExportacionMetrados.Core.Metrado
         public bool PuedeSerMetalica =>
             Categoria == BuiltInCategory.OST_StructuralFraming || Categoria == BuiltInCategory.OST_StructuralColumns;
 
+        /// <summary>
+        /// False en vigas y cimentaciones: su metrado no se agrupa por nivel (una viga
+        /// puede cruzar varios y las cimentaciones comparten el nivel de fundación),
+        /// solo por tipo. Vale tanto para las tablas de Revit como para el Excel.
+        /// </summary>
+        public bool AgruparPorNivel =>
+            Categoria != BuiltInCategory.OST_StructuralFraming && Categoria != BuiltInCategory.OST_StructuralFoundation;
+
         public static List<CategoriaMetrado> Predeterminadas() => new List<CategoriaMetrado>
         {
             new CategoriaMetrado(BuiltInCategory.OST_StructuralFraming,    "Vigas",         "VIGAS",     true),

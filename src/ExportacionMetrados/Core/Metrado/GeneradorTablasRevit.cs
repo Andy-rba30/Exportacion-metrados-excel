@@ -184,10 +184,9 @@ namespace ExportacionMetrados.Core.Metrado
             ScheduleDefinition def = vs.Definition;
             IList<SchedulableField> campos = def.GetSchedulableFields();
 
-            bool esViga = cat.Categoria == BuiltInCategory.OST_StructuralFraming;
-
-            // En vigas no se agrupa por nivel (una viga puede cruzar varios).
-            ScheduleField nivel = esViga ? null : Agregar(def, campos, "Nivel",
+            // En vigas y cimentaciones no se agrupa por nivel (una viga puede cruzar varios;
+            // las cimentaciones comparten el nivel de fundación): solo por tipo.
+            ScheduleField nivel = !cat.AgruparPorNivel ? null : Agregar(def, campos, "Nivel",
                 BuiltInParameter.FAMILY_BASE_LEVEL_PARAM,          // columnas
                 BuiltInParameter.WALL_BASE_CONSTRAINT,             // muros
                 BuiltInParameter.LEVEL_PARAM,                      // losas, cimentaciones
