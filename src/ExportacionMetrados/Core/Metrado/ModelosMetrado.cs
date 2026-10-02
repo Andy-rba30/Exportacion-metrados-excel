@@ -80,6 +80,12 @@ namespace ExportacionMetrados.Core.Metrado
         /// </summary>
         public bool CrearFiltrosVista { get; set; } = true;
 
+        /// <summary>
+        /// En modelos compartidos, reservar de antemano los subproyectos que se van a
+        /// modificar (evita el aviso de Revit "checkout a large number of elements").
+        /// </summary>
+        public bool ReservarSubproyectos { get; set; } = true;
+
         /// <summary>Añadir a las tablas de Revit un filtro "Material estructural contiene ...".</summary>
         public bool FiltrarPorMaterial { get; set; } = true;
 

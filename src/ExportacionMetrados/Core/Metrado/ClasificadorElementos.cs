@@ -22,10 +22,23 @@ namespace ExportacionMetrados.Core.Metrado
         public const string ValorOtro = "OTRO";
 
         public const string NombreParametroPeso = "Metrado - Peso (kg)";
+        /// <summary>
+        /// Parámetro de texto en el refuerzo con el tipo de elemento anfitrión (VIGAS,
+        /// COLUMNAS, CIMIENTOS, LOSAS, MUROS). Lo usan los filtros de vista: no depende
+        /// de la partición, que el usuario puede tener numerada a su manera.
+        /// </summary>
+        public const string NombreParametroElementoRefuerzo = "Metrado - Elemento";
+
+        /// <summary>Categorías de refuerzo a las que se vinculan los parámetros y filtros.</summary>
+        public static readonly BuiltInCategory[] CategoriasRefuerzo =
+        {
+            BuiltInCategory.OST_Rebar, BuiltInCategory.OST_FabricReinforcement,
+        };
 
         // GUID fijos para que los parámetros compartidos sean los mismos en todos los proyectos.
         private static readonly Guid GuidParametroMaterial = new Guid("5B7E3C1A-2D4F-4A6B-9C8D-0E1F2A3B4C5D");
         private static readonly Guid GuidParametroPeso = new Guid("7D2A9F4E-6B1C-4C3D-8E5F-1A2B3C4D5E6F");
+        private static readonly Guid GuidParametroElementoRefuerzo = new Guid("9A4C7E21-3B5D-4F8A-A6C2-2D3E4F5A6B7C");
 
         /// <summary>
         /// Id del parámetro compartido "Metrado - Material" en el proyecto (para reglas de
@@ -54,7 +67,27 @@ namespace ExportacionMetrados.Core.Metrado
         /// </summary>
         public static bool AsegurarParametroMaterial(Document doc, IEnumerable<BuiltInCategory> categorias, List<string> advertencias)
         {
-            return AsegurarParametro(doc, NombreParametroMaterial, GuidParametroMaterial, true, categorias, advertencias);
+            return AsegurarParametro(doc, NombreParametroMaterial, GuidParametroMaterial, true,
+                "Clasificación automática para el metrado: CONCRETO, ACERO ESTRUCTURAL, MADERA u OTRO.",
+                categorias, advertencias);
+        }
+
+        /// <summary>
+        /// Crea y vincula "Metrado - Elemento" a las armaduras y mallas: tipo de elemento
+        /// anfitrión (VIGAS, COLUMNAS...). Lo usan los filtros de vista.
+        /// </summary>
+        public static bool AsegurarParametroElementoRefuerzo(Document doc, List<string> advertencias)
+        {
+            return AsegurarParametro(doc, NombreParametroElementoRefuerzo, GuidParametroElementoRefuerzo, true,
+                "Tipo de elemento anfitrión del refuerzo, escrito por el plugin de metrado: VIGAS, COLUMNAS, CIMIENTOS, LOSAS o MUROS.",
+                CategoriasRefuerzo, advertencias);
+        }
+
+        /// <summary>Id del parámetro compartido "Metrado - Elemento" (null si aún no existe).</summary>
+        public static ElementId IdParametroElementoRefuerzo(Document doc)
+        {
+            try { return SharedParameterElement.Lookup(doc, GuidParametroElementoRefuerzo)?.Id; }
+            catch (Exception) { return null; }
         }
 
         /// <summary>
@@ -64,6 +97,8 @@ namespace ExportacionMetrados.Core.Metrado
         public static bool AsegurarParametroPeso(Document doc, List<string> advertencias)
         {
             return AsegurarParametro(doc, NombreParametroPeso, GuidParametroPeso, false,
+                "Peso en kg calculado por el plugin: armaduras = longitud total × kg/m; " +
+                "perfiles metálicos = longitud × área de sección × densidad del acero al carbono.",
                 new[]
                 {
                     BuiltInCategory.OST_Rebar, BuiltInCategory.OST_FabricReinforcement,
@@ -71,7 +106,7 @@ namespace ExportacionMetrados.Core.Metrado
                 }, advertencias);
         }
 
-        private static bool AsegurarParametro(Document doc, string nombre, Guid guid, bool esTexto,
+        private static bool AsegurarParametro(Document doc, string nombre, Guid guid, bool esTexto, string descripcion,
             IEnumerable<BuiltInCategory> categorias, List<string> advertencias)
         {
             Application app = doc.Application;
@@ -102,7 +137,7 @@ namespace ExportacionMetrados.Core.Metrado
                     return true;
                 }
 
-                ExternalDefinition definicion = ObtenerDefinicionCompartida(app, nombre, guid, esTexto, advertencias);
+                ExternalDefinition definicion = ObtenerDefinicionCompartida(app, nombre, guid, esTexto, descripcion, advertencias);
                 if (definicion == null) return false;
 
                 InstanceBinding nuevo = app.Create.NewInstanceBinding(categoriasSet);
@@ -142,7 +177,7 @@ namespace ExportacionMetrados.Core.Metrado
         /// alterar el archivo de parámetros compartidos del usuario.
         /// </summary>
         private static ExternalDefinition ObtenerDefinicionCompartida(Application app, string nombre, Guid guid, bool esTexto,
-            List<string> advertencias)
+            string descripcion, List<string> advertencias)
         {
             string archivoOriginal = app.SharedParametersFilename;
             string carpeta = System.IO.Path.Combine(
@@ -172,10 +207,7 @@ namespace ExportacionMetrados.Core.Metrado
 #endif
                 {
                     GUID = guid,
-                    Description = esTexto
-                        ? "Clasificación automática para el metrado: CONCRETO, ACERO ESTRUCTURAL, MADERA u OTRO."
-                        : "Peso en kg calculado por el plugin: armaduras = longitud total × kg/m; " +
-                          "perfiles metálicos = longitud × área de sección × densidad del acero al carbono.",
+                    Description = descripcion ?? string.Empty,
                     UserModifiable = true,
                     Visible = true,
                 };
@@ -410,6 +442,44 @@ namespace ExportacionMetrados.Core.Metrado
                 }
             }
             return resultado.Values.ToList();
+        }
+
+        /// <summary>
+        /// Escribe "Metrado - Elemento" en cada refuerzo con el tipo de su anfitrión
+        /// (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS; otra categoría, su nombre en
+        /// mayúsculas). Siempre se sobrescribe: es un dato calculado, no del usuario.
+        /// Devuelve el número de refuerzos actualizados.
+        /// </summary>
+        public static int RellenarElementoRefuerzo(Document doc, IEnumerable<Element> refuerzo, IList<CategoriaMetrado> categorias,
+            List<string> advertencias)
+        {
+            var mapa = categorias.ToDictionary(c => new ElementId(c.Categoria), c => c.NombreParticion);
+            int n = 0;
+
+            foreach (Element r in refuerzo)
+            {
+                try
+                {
+                    Parameter p = r.LookupParameter(NombreParametroElementoRefuerzo);
+                    if (p == null || p.IsReadOnly || p.StorageType != StorageType.String) continue;
+
+                    Element host = doc.GetElement(AnfitrionDe(r));
+                    string valor;
+                    if (host?.Category == null) valor = "(SIN ANFITRIÓN)";
+                    else if (!mapa.TryGetValue(host.Category.Id, out valor)) valor = host.Category.Name.ToUpperInvariant();
+
+                    if (!string.Equals(p.AsString() ?? string.Empty, valor, StringComparison.Ordinal))
+                    {
+                        p.Set(valor);
+                        n++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    advertencias.Add($"No se pudo escribir \"{NombreParametroElementoRefuerzo}\" en el refuerzo {r.Id}: {ex.Message}");
+                }
+            }
+            return n;
         }
 
         /// <summary>

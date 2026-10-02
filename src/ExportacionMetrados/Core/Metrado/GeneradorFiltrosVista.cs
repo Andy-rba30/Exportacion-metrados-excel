@@ -10,7 +10,9 @@ namespace ExportacionMetrados.Core.Metrado
     /// metrado, para comprobar a simple vista qué entra en cada tabla:
     ///   - "Metrado - Concreto - {elemento}"           categoría + "Metrado - Material" = CONCRETO
     ///   - "Metrado - Acero estructural - {elemento}"  categoría + "Metrado - Material" = ACERO ESTRUCTURAL
-    ///   - "Metrado - Refuerzo - {PARTICIÓN}"          armaduras y mallas con esa partición
+    ///   - "Metrado - Refuerzo - {ELEMENTO}"           armaduras y mallas cuyo "Metrado - Elemento"
+    ///                                                 (tipo de anfitrión) es ese; si el parámetro
+    ///                                                 no existe, por partición
     /// Los filtros quedan en el proyecto (se pueden usar en cualquier vista desde
     /// Visibilidad/Gráficos) y, si se pasa una vista, se aplican a ella con color de
     /// línea y relleno sólido. Debe llamarse dentro de una transacción abierta, después
@@ -95,11 +97,18 @@ namespace ExportacionMetrados.Core.Metrado
 
             if (_op.IncluirAcero)
             {
-                var idParticion = new ElementId(BuiltInParameter.NUMBER_PARTITION_PARAM);
-                var categoriasRefuerzo = new[] { BuiltInCategory.OST_Rebar, BuiltInCategory.OST_FabricReinforcement };
+                // "Metrado - Elemento" lo escribe el plugin según el anfitrión real de cada
+                // barra; la partición solo se usa si ese parámetro no se pudo crear.
+                ElementId idRefuerzo = ClasificadorElementos.IdParametroElementoRefuerzo(_doc);
+                if (idRefuerzo == null)
+                {
+                    idRefuerzo = new ElementId(BuiltInParameter.NUMBER_PARTITION_PARAM);
+                    Advertencias.Add("No existe el parámetro \"" + ClasificadorElementos.NombreParametroElementoRefuerzo +
+                                     "\"; los filtros de refuerzo se crearon por partición.");
+                }
                 foreach (CategoriaMetrado cat in categorias)
                 {
-                    Agregar(filtros, Crear(PrefijoRefuerzo + cat.NombreParticion, categoriasRefuerzo, idParticion, cat.NombreParticion),
+                    Agregar(filtros, Crear(PrefijoRefuerzo + cat.NombreParticion, ClasificadorElementos.CategoriasRefuerzo, idRefuerzo, cat.NombreParticion),
                         ColorDe(ColoresRefuerzo, cat.NombreParticion));
                 }
             }

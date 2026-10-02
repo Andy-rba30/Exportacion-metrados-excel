@@ -35,6 +35,7 @@ src/ExportacionMetrados/
 │       ├── ClasificadorElementos.cs Parámetros "Metrado - Material" y "Metrado - Peso (kg)", particiones
 │       ├── GeneradorTablasRevit.cs Crea las tablas de planificación de metrado en el proyecto
 │       ├── GeneradorFiltrosVista.cs Filtros de vista por colores para comprobar el metrado
+│       ├── GestorSubproyectos.cs  Reserva de subproyectos en modelos compartidos
 │       ├── ExportadorMetrado.cs   Escribe las hojas Resumen, Concreto, Acero estructural, Acero y detalle
 │       └── ModelosMetrado.cs      Opciones, categorías y resultados del metrado
 ├── UI/
@@ -151,11 +152,21 @@ función aparte para tablas que ya existen en el proyecto.)
   color de línea y relleno sólido: `Metrado - Concreto - Vigas / Columnas / Losas / Cimentaciones / Muros`
   (regla: categoría y `Metrado - Material = CONCRETO`), `Metrado - Acero estructural - Vigas / Columnas`
   (`= ACERO ESTRUCTURAL`) y `Metrado - Refuerzo - VIGAS / COLUMNAS / CIMIENTOS / LOSAS / MUROS` (armaduras y
-  mallas por partición). Cada familia usa colores distintos (azules/rojos/verdes el concreto, celeste y
-  magenta los perfiles, naranjas y turquesas el refuerzo), así se ve exactamente qué se está metrando y en
-  qué tabla cae. Los filtros quedan en el proyecto: desde Visibilidad/Gráficos (VG) de cualquier vista se
-  pueden activar, ocultar o recolorear. Si la vista activa es una tabla o tiene una plantilla que controla
-  los filtros, se crean igual pero no se aplican (se avisa). Si ya existen se actualizan, no se duplican.
+  mallas por el parámetro **"Metrado - Elemento"**, que el plugin escribe en cada refuerzo con el tipo de su
+  anfitrión real; así los filtros no dependen de cómo tenga numeradas las particiones). Cada familia usa
+  colores distintos (azules/rojos/verdes el concreto, celeste y magenta los perfiles, naranjas y turquesas
+  el refuerzo), así se ve exactamente qué se está metrando y en qué tabla cae. Los filtros quedan en el
+  proyecto: en Visibilidad/Gráficos (VV) → Filtros de cualquier vista, quitar la marca **Visibilidad** oculta
+  esos elementos (por ejemplo, para ver solo el refuerzo de columnas), quitar **Habilitar filtro** deja de
+  pintarlos y **Eliminar** los saca de la vista. Para ver el refuerzo coloreado en 3D la vista debe estar en
+  Sombreado o Colores coherentes y las barras con "Ver como sólido"; si no, se ven como líneas de color. Si
+  la vista activa es una tabla o tiene una plantilla que controla los filtros, se crean igual pero no se
+  aplican (se avisa). Si ya existen se actualizan, no se duplican.
+- **Modelos compartidos (worksharing)**: antes de escribir, el plugin reserva los subproyectos que va a
+  modificar (los estándar de parámetros compartidos, el de la vista activa y los de los elementos y
+  refuerzos metrados), para que Revit no muestre el aviso "You are trying to checkout a large number of
+  elements". Si un subproyecto lo tiene otro usuario se avisa y Revit reserva los elementos uno a uno.
+  Los subproyectos quedan reservados hasta sincronizar con central. Se puede desactivar en la ventana.
 - **Partición del acero**: antes de crear las tablas, el plugin escribe en la partición vacía de cada
   armadura el nombre de la categoría de su anfitrión (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`).
   Las tablas de acero por elemento filtran por ese texto. Las particiones que ya tienen texto se respetan

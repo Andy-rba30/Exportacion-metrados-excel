@@ -50,7 +50,12 @@ namespace ExportacionMetrados
                 ResultadoMetrado resultado = new CalculadorMetrado(doc, opciones).Calcular();
                 advertencias.AddRange(resultado.Advertencias);
 
-                int clasificados = 0, particionados = 0, pesados = 0, perfilesPesados = 0;
+                // 0b. Modelos compartidos: reservar los subproyectos antes de escribir (fuera de la transacción).
+                int subproyectos = opciones.ReservarSubproyectos
+                    ? GestorSubproyectos.Reservar(doc, uidoc.ActiveView, opciones, advertencias)
+                    : 0;
+
+                int clasificados = 0, particionados = 0, elementosRefuerzo = 0, pesados = 0, perfilesPesados = 0;
                 using (var t = new Transaction(doc, "Metrado automático"))
                 {
                     t.Start();
@@ -68,6 +73,16 @@ namespace ExportacionMetrados
                     {
                         particionados = ClasificadorElementos.AsignarParticion(doc, ClasificadorElementos.TodoElRefuerzo(doc),
                             opciones.Categorias, opciones.SobrescribirParticiones, null, advertencias);
+                    }
+
+                    // 1b'. "Metrado - Elemento" en cada refuerzo (tipo de anfitrión real), base de
+                    //      los filtros de vista; no depende de cómo estén numeradas las particiones.
+                    if ((opciones.IncluirAcero || opciones.CrearFiltrosVista) &&
+                        ClasificadorElementos.AsegurarParametroElementoRefuerzo(doc, advertencias))
+                    {
+                        doc.Regenerate();
+                        elementosRefuerzo = ClasificadorElementos.RellenarElementoRefuerzo(doc, ClasificadorElementos.TodoElRefuerzo(doc),
+                            opciones.Categorias, advertencias);
                     }
 
                     // 1c. Peso en kg: armaduras (longitud total × kg/m) y perfiles metálicos
@@ -109,7 +124,8 @@ namespace ExportacionMetrados
                     catch (Exception) { /* no es crítico */ }
                 }
 
-                MostrarResumen(generador, filtros, tablas, resultado, opciones, advertencias, clasificados, particionados, pesados, perfilesPesados);
+                MostrarResumen(generador, filtros, tablas, resultado, opciones, advertencias, subproyectos, clasificados, particionados,
+                    elementosRefuerzo, pesados, perfilesPesados);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -129,18 +145,20 @@ namespace ExportacionMetrados
         }
 
         private static void MostrarResumen(GeneradorTablasRevit generador, GeneradorFiltrosVista filtros, List<ViewSchedule> tablas,
-            ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias, int clasificados, int particionados,
-            int pesados, int perfilesPesados)
+            ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias, int subproyectos, int clasificados,
+            int particionados, int elementosRefuerzo, int pesados, int perfilesPesados)
         {
             double m3 = resultado.Concreto.Sum(c => c.VolumenM3);
             double kg = resultado.Acero.Sum(a => a.PesoKg);
             double kgPerfiles = resultado.AceroEstructural.Sum(a => a.PesoKg);
 
             string contenido =
+                (subproyectos > 0 ? $"Subproyectos reservados (modelo compartido): {subproyectos}\n" : string.Empty) +
                 $"Tablas creadas en Revit: {generador.TablasCreadas.Count}\n" +
                 $"Tablas existentes reutilizadas: {generador.TablasReutilizadas.Count}\n" +
                 $"Elementos clasificados (Metrado - Material): {clasificados}\n" +
                 $"Refuerzos con partición asignada: {particionados}\n" +
+                $"Refuerzos con elemento anfitrión (Metrado - Elemento): {elementosRefuerzo}\n" +
                 $"Refuerzos con peso actualizado: {pesados}\n" +
                 $"Perfiles metálicos con peso actualizado: {perfilesPesados}\n" +
                 (filtros != null
