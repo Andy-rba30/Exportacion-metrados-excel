@@ -149,11 +149,13 @@ función aparte para tablas que ya existen en el proyecto.)
   tablas muestran esa columna con totales. Si modifica armaduras después, vuelva a ejecutar el metrado
   para actualizar los pesos.
 - **Peso de los perfiles metálicos**: las vigas y columnas clasificadas como `ACERO ESTRUCTURAL` no se
-  metran por volumen sino por peso: `Longitud × área de sección × densidad`. El área de sección se lee del
-  parámetro **Área de sección** del tipo (perfiles con sección estructural: W, HSS, IPE, C, L...), de la
-  definición de sección estructural de la familia o de un parámetro de área con nombre habitual; como
-  último recurso se usa `Volumen / longitud`. La densidad es la del **acero al carbono**, material de los
-  perfiles estructurales: 7850 kg/m³ por defecto, ajustable en la ventana. El resultado se escribe en
+  metran por volumen sino por peso: `Longitud × área de sección × densidad`. La longitud es la **de corte**
+  (`Cut Length`: la pieza real, descontados los recortes en los empalmes) en vigas y arriostres, y la
+  longitud del elemento en columnas. El área de sección se lee del parámetro **Área de sección** del tipo
+  (perfiles con sección estructural: W, HSS, IPE, C, L...), de la definición de sección estructural de la
+  familia o de un parámetro de área con nombre habitual; como último recurso se usa `Volumen / longitud`.
+  La densidad es la del **acero al carbono**, material de los perfiles estructurales: 7850 kg/m³ por
+  defecto, ajustable en la ventana. El resultado se escribe en
   "Metrado - Peso (kg)" de cada perfil y la tabla `Metrado acero estructural - <elemento>` lo suma.
 - Si ya existe una tabla con el mismo nombre se reutiliza tal cual. La opción "Regenerar" la borra y la
   crea de nuevo (se pierden columnas añadidas a mano y su colocación en planos). Tras actualizar el plugin

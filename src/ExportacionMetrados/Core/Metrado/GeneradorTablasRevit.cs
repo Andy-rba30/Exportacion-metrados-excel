@@ -203,8 +203,13 @@ namespace ExportacionMetrados.Core.Metrado
             }
             catch (Exception ex) { Advertencias.Add($"{cat.Nombre}: sin campo Cantidad ({ex.Message})"); }
 
-            ScheduleField longitud = Agregar(def, campos, "Longitud",
-                BuiltInParameter.INSTANCE_LENGTH_PARAM, BuiltInParameter.CURVE_ELEM_LENGTH);
+            // En los perfiles metálicos la longitud es la de corte (la pieza real, la misma
+            // con la que el plugin calcula el peso); si la categoría no la expone (columnas),
+            // la longitud del elemento.
+            ScheduleField longitud = concreto
+                ? Agregar(def, campos, "Longitud", BuiltInParameter.INSTANCE_LENGTH_PARAM, BuiltInParameter.CURVE_ELEM_LENGTH)
+                : Agregar(def, campos, "Longitud", BuiltInParameter.STRUCTURAL_FRAME_CUT_LENGTH,
+                    BuiltInParameter.INSTANCE_LENGTH_PARAM, BuiltInParameter.CURVE_ELEM_LENGTH);
 
             if (concreto)
             {

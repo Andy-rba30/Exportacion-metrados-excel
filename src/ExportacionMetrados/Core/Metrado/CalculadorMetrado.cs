@@ -276,6 +276,18 @@ namespace ExportacionMetrados.Core.Metrado
             return 0;
         }
 
+        /// <summary>
+        /// Longitud de un perfil metálico. En vigas y arriostres se prefiere la
+        /// longitud de corte ("Cut Length": la pieza real, descontados los recortes en
+        /// los empalmes con columnas u otras vigas); si la categoría no la expone
+        /// (columnas), la longitud del elemento.
+        /// </summary>
+        private static double ObtenerLongitudPerfil(Element e)
+        {
+            double l = LeerDouble(e, BuiltInParameter.STRUCTURAL_FRAME_CUT_LENGTH);
+            return l > 0 ? l : ObtenerLongitud(e);
+        }
+
         // ------------------------------------------------------------------
         // Acero estructural (perfiles metálicos)
         // ------------------------------------------------------------------
@@ -306,7 +318,7 @@ namespace ExportacionMetrados.Core.Metrado
         private ElementoAceroEstructural MedirPerfilMetalico(Element e, string nombreCategoria, ResultadoMetrado resultado)
         {
             var tipo = _doc.GetElement(e.GetTypeId()) as ElementType;
-            double longitudM = AMetros(ObtenerLongitud(e));
+            double longitudM = AMetros(ObtenerLongitudPerfil(e));
             if (longitudM <= 0)
             {
                 resultado.Advertencias.Add($"{nombreCategoria} Id {e.Id}: perfil metálico sin longitud; no se pudo calcular su peso.");
