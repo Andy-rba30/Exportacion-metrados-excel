@@ -7,14 +7,21 @@ namespace ExportacionMetrados.Core.Metrado
 {
     /// <summary>
     /// Crea (o reutiliza) las tablas de planificación de metrado dentro del
-    /// proyecto de Revit: una de concreto y una de acero por cada categoría.
+    /// proyecto de Revit:
+    ///   - "Metrado concreto - {elemento}"          elementos con material de concreto
+    ///   - "Metrado acero estructural - {elemento}" perfiles metálicos (si los hay)
+    ///   - "Metrado acero - {elemento}"             refuerzo cuyo anfitrión es de esa categoría
+    ///   - "Metrado acero - General"                todo el refuerzo, por partición y elemento
     /// Todos los métodos deben llamarse dentro de una transacción abierta.
     /// </summary>
     public class GeneradorTablasRevit
     {
         public const string PrefijoConcreto = "Metrado concreto - ";
+        public const string PrefijoAceroEstructural = "Metrado acero estructural - ";
         public const string PrefijoAcero = "Metrado acero - ";
-        public const string NombreAceroGeneral = "Metrado acero";
+        public const string NombreAceroGeneral = "Metrado acero - General";
+
+        private const int MaxFiltros = 8;
 
         private readonly Document _doc;
         private readonly OpcionesMetrado _op;
@@ -31,9 +38,6 @@ namespace ExportacionMetrados.Core.Metrado
             _vistaActivaId = vistaActivaId ?? ElementId.InvalidElementId;
         }
 
-        /// <summary>
-        /// Genera las tablas y devuelve todas (creadas y reutilizadas) en orden.
-        /// </summary>
         public List<ViewSchedule> Generar()
         {
             var tablas = new List<ViewSchedule>();
@@ -41,8 +45,16 @@ namespace ExportacionMetrados.Core.Metrado
 
             foreach (CategoriaMetrado cat in categorias)
             {
-                ViewSchedule t = CrearOReutilizar(PrefijoConcreto + cat.Nombre, () => CrearTablaConcreto(cat));
+                MaterialesCategoria mats = ClasificarMateriales(cat);
+
+                ViewSchedule t = CrearOReutilizar(PrefijoConcreto + cat.Nombre, () => CrearTablaElementos(cat, mats, concreto: true));
                 if (t != null) tablas.Add(t);
+
+                if (_op.TablasAceroEstructural && mats.NoConcreto.Count > 0)
+                {
+                    ViewSchedule m = CrearOReutilizar(PrefijoAceroEstructural + cat.Nombre, () => CrearTablaElementos(cat, mats, concreto: false));
+                    if (m != null) tablas.Add(m);
+                }
             }
 
             if (_op.IncluirAcero)
@@ -50,28 +62,37 @@ namespace ExportacionMetrados.Core.Metrado
                 bool filtroDisponible = true;
                 foreach (CategoriaMetrado cat in categorias)
                 {
-                    if (!filtroDisponible) break;
+                    if (!_op.TablasAceroPorElemento || !filtroDisponible) break;
 
                     bool filtrada = true;
-                    ViewSchedule t = CrearOReutilizar(PrefijoAcero + cat.Nombre, () => CrearTablaAcero(cat, out filtrada));
+                    ViewSchedule t = CrearOReutilizar(PrefijoAcero + cat.Nombre, () => CrearTablaRefuerzo(cat, out filtrada));
                     if (t == null) continue;
 
                     if (!filtrada && TablasCreadas.Contains(t))
                     {
-                        // No se pudo filtrar por categoría del anfitrión: se deja una
-                        // sola tabla general de acero agrupada por partición.
+                        // Sin filtro por anfitrión la tabla por categoría no tiene sentido.
                         filtroDisponible = false;
-                        Renombrar(t, NombreAceroGeneral);
+                        _doc.Delete(t.Id);
+                        TablasCreadas.Remove(t);
                         Advertencias.Add("No fue posible filtrar el acero por categoría del anfitrión; " +
-                                         "se creó una sola tabla \"" + NombreAceroGeneral + "\" agrupada por partición.");
+                                         "solo se creó la tabla general de acero.");
+                        continue;
                     }
                     tablas.Add(t);
+                }
+
+                if (_op.TablaAceroGeneral || !filtroDisponible)
+                {
+                    ViewSchedule g = CrearOReutilizar(NombreAceroGeneral, () => CrearTablaRefuerzo(null, out _));
+                    if (g != null) tablas.Add(g);
                 }
             }
 
             return tablas;
         }
 
+        // ------------------------------------------------------------------
+        // Reutilización
         // ------------------------------------------------------------------
 
         private ViewSchedule CrearOReutilizar(string nombre, Func<ViewSchedule> crear)
@@ -111,7 +132,7 @@ namespace ExportacionMetrados.Core.Metrado
             }
         }
 
-        private void Renombrar(ViewSchedule tabla, string nombre)
+        private static void Renombrar(ViewSchedule tabla, string nombre)
         {
             try { tabla.Name = nombre; }
             catch (Autodesk.Revit.Exceptions.ArgumentException)
@@ -121,17 +142,52 @@ namespace ExportacionMetrados.Core.Metrado
         }
 
         // ------------------------------------------------------------------
-        // Concreto
+        // Materiales usados por la categoría (para separar concreto de metálico)
         // ------------------------------------------------------------------
 
-        private ViewSchedule CrearTablaConcreto(CategoriaMetrado cat)
+        private class MaterialesCategoria
+        {
+            public HashSet<ElementId> Concreto { get; } = new HashSet<ElementId>();
+            public HashSet<ElementId> NoConcreto { get; } = new HashSet<ElementId>();
+            public Dictionary<ElementId, string> Nombres { get; } = new Dictionary<ElementId, string>();
+        }
+
+        private MaterialesCategoria ClasificarMateriales(CategoriaMetrado cat)
+        {
+            var r = new MaterialesCategoria();
+            var elementos = new FilteredElementCollector(_doc)
+                .OfCategory(cat.Categoria)
+                .WhereElementIsNotElementType()
+                .ToElements();
+
+            foreach (Element e in elementos)
+            {
+                Material m;
+                try { m = CalculadorMetrado.MaterialEstructuralDe(_doc, e); }
+                catch { continue; }
+                if (m == null || r.Nombres.ContainsKey(m.Id)) continue;
+
+                r.Nombres[m.Id] = m.Name;
+                if (CalculadorMetrado.MaterialEsConcreto(_doc, m)) r.Concreto.Add(m.Id);
+                else r.NoConcreto.Add(m.Id);
+            }
+            return r;
+        }
+
+        // ------------------------------------------------------------------
+        // Tablas de elementos (concreto / acero estructural)
+        // ------------------------------------------------------------------
+
+        private ViewSchedule CrearTablaElementos(CategoriaMetrado cat, MaterialesCategoria mats, bool concreto)
         {
             ViewSchedule vs = ViewSchedule.CreateSchedule(_doc, new ElementId(cat.Categoria));
             ScheduleDefinition def = vs.Definition;
             IList<SchedulableField> campos = def.GetSchedulableFields();
 
-            ScheduleField nivel = Agregar(def, campos, "Nivel",
-                BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM,   // vigas
+            bool esViga = cat.Categoria == BuiltInCategory.OST_StructuralFraming;
+
+            // En vigas no se agrupa por nivel (una viga puede cruzar varios).
+            ScheduleField nivel = esViga ? null : Agregar(def, campos, "Nivel",
                 BuiltInParameter.FAMILY_BASE_LEVEL_PARAM,          // columnas
                 BuiltInParameter.WALL_BASE_CONSTRAINT,             // muros
                 BuiltInParameter.LEVEL_PARAM,                      // losas, cimentaciones
@@ -140,10 +196,9 @@ namespace ExportacionMetrados.Core.Metrado
             ScheduleField tipo = Agregar(def, campos, "Elemento", BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM);
             ScheduleField material = Agregar(def, campos, "Material", BuiltInParameter.STRUCTURAL_MATERIAL_PARAM);
 
-            ScheduleField cantidad = null;
             try
             {
-                cantidad = def.AddField(ScheduleFieldType.Count);
+                ScheduleField cantidad = def.AddField(ScheduleFieldType.Count);
                 cantidad.ColumnHeading = "Cantidad";
             }
             catch (Exception ex) { Advertencias.Add($"{cat.Nombre}: sin campo Cantidad ({ex.Message})"); }
@@ -163,45 +218,87 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 def.AddSortGroupField(new ScheduleSortGroupField(nivel.FieldId)
                 {
-                    ShowHeader = true,
-                    ShowFooter = true,
-                    ShowFooterTitle = true,
-                    ShowBlankLine = true,
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
                 });
             }
-            if (tipo != null)
-            {
-                def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
-            }
+            if (tipo != null) def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
 
             def.IsItemized = false;
             def.ShowGrandTotal = true;
             def.ShowGrandTotalTitle = true;
             def.ShowGrandTotalCount = true;
-            def.GrandTotalTitle = "Total " + cat.Nombre;
+            def.GrandTotalTitle = (concreto ? "Total concreto " : "Total acero estructural ") + cat.Nombre;
 
-            if (_op.FiltrarPorMaterial && material != null && !string.IsNullOrWhiteSpace(_op.TextoMaterialConcreto))
-            {
-                try
-                {
-                    def.AddFilter(new ScheduleFilter(material.FieldId, ScheduleFilterType.Contains, _op.TextoMaterialConcreto.Trim()));
-                }
-                catch (Exception ex)
-                {
-                    Advertencias.Add($"{cat.Nombre}: no se pudo aplicar el filtro de material ({ex.Message}).");
-                }
-            }
+            if (material != null) AplicarFiltroMaterial(def, material, mats, concreto, cat.Nombre);
 
             return vs;
         }
 
+        /// <summary>
+        /// Deja en la tabla solo los elementos de concreto (o solo los que no lo son).
+        /// Primero intenta un filtro de texto; si la API no lo admite, excluye uno a
+        /// uno los materiales del otro grupo (hasta el máximo de filtros de Revit).
+        /// </summary>
+        private void AplicarFiltroMaterial(ScheduleDefinition def, ScheduleField material, MaterialesCategoria mats,
+            bool concreto, string nombreCategoria)
+        {
+            string texto = (_op.TextoMaterialConcreto ?? string.Empty).Trim();
+
+            if (_op.FiltrarPorMaterial && texto.Length > 0)
+            {
+                // Comprobar que el texto realmente distingue los materiales del modelo;
+                // si no, se usa la clasificación por material directamente.
+                bool textoSirve =
+                    mats.Concreto.All(id => mats.Nombres[id].IndexOf(texto, StringComparison.OrdinalIgnoreCase) >= 0) &&
+                    mats.NoConcreto.All(id => mats.Nombres[id].IndexOf(texto, StringComparison.OrdinalIgnoreCase) < 0);
+
+                if (textoSirve)
+                {
+                    try
+                    {
+                        def.AddFilter(new ScheduleFilter(material.FieldId,
+                            concreto ? ScheduleFilterType.Contains : ScheduleFilterType.NotContains, texto));
+                        return;
+                    }
+                    catch (Exception)
+                    {
+                        // La API no admite el filtro de texto en este campo: usar ids.
+                    }
+                }
+            }
+
+            HashSet<ElementId> excluir = concreto ? mats.NoConcreto : mats.Concreto;
+            if (excluir.Count == 0) return;
+
+            int agregados = 0;
+            foreach (ElementId id in excluir)
+            {
+                if (agregados >= MaxFiltros)
+                {
+                    Advertencias.Add($"{nombreCategoria}: hay más de {MaxFiltros} materiales distintos; " +
+                                     "la tabla puede mezclar algunos materiales.");
+                    break;
+                }
+                try
+                {
+                    def.AddFilter(new ScheduleFilter(material.FieldId, ScheduleFilterType.NotEqual, id));
+                    agregados++;
+                }
+                catch (Exception ex)
+                {
+                    Advertencias.Add($"{nombreCategoria}: no se pudo excluir el material \"{mats.Nombres[id]}\" ({ex.Message}).");
+                }
+            }
+        }
+
         // ------------------------------------------------------------------
-        // Acero
+        // Tablas de acero de refuerzo
         // ------------------------------------------------------------------
 
-        private ViewSchedule CrearTablaAcero(CategoriaMetrado cat, out bool filtrada)
+        /// <param name="cat">Categoría del anfitrión, o null para la tabla general.</param>
+        private ViewSchedule CrearTablaRefuerzo(CategoriaMetrado cat, out bool filtrada)
         {
-            filtrada = false;
+            filtrada = cat == null;
 
             ViewSchedule vs = ViewSchedule.CreateSchedule(_doc, new ElementId(BuiltInCategory.OST_Rebar));
             ScheduleDefinition def = vs.Definition;
@@ -209,79 +306,101 @@ namespace ExportacionMetrados.Core.Metrado
 
             ScheduleField particion = Agregar(def, campos, "Partición", BuiltInParameter.NUMBER_PARTITION_PARAM);
 
-            ScheduleField hostCategoria = AgregarPorNombre(def, campos, "Elemento anfitrión",
+            ScheduleField hostCategoria = AgregarPorNombre(def, campos, "Elemento",
                 new[] { "REBAR_HOST_CATEGORY", "REBAR_ELEM_HOST_CATEGORY" },
                 new[] { "Host Category", "Categoría de anfitrión", "Categoría del anfitrión", "Categoría de host" });
 
-            ScheduleField hostMarca = Agregar(def, campos, "Marca anfitrión", BuiltInParameter.REBAR_ELEM_HOST_MARK);
             ScheduleField tipo = Agregar(def, campos, "Tipo de barra", BuiltInParameter.ELEM_TYPE_PARAM);
             ScheduleField diametro = Agregar(def, campos, "Diámetro", BuiltInParameter.REBAR_BAR_DIAMETER);
             ScheduleField cantidad = Agregar(def, campos, "N° barras", BuiltInParameter.REBAR_ELEM_QUANTITY_OF_BARS);
-            ScheduleField longBarra = Agregar(def, campos, "Longitud de barra", BuiltInParameter.REBAR_ELEM_LENGTH);
             ScheduleField longTotal = Agregar(def, campos, "Longitud total", BuiltInParameter.REBAR_ELEM_TOTAL_LENGTH);
 
-            // Peso unitario (kg/m): parámetro del tipo de barra indicado por el usuario.
             var nombresPeso = new List<string>();
             if (!string.IsNullOrWhiteSpace(_op.NombreParametroPeso)) nombresPeso.Add(_op.NombreParametroPeso.Trim());
             nombresPeso.AddRange(CalculadorMetrado.NombresParametroPesoBarra);
             ScheduleField pesoUnitario = AgregarPorNombre(def, campos, "Peso unitario",
                 new[] { "REBAR_BAR_MASS_PER_UNIT_LENGTH" }, nombresPeso.ToArray());
 
-            // Masa total por barra, si la versión de Revit la ofrece.
             ScheduleField masaTotal = AgregarPorNombre(def, campos, "Peso total",
                 new[] { "REBAR_ELEM_TOTAL_MASS", "REBAR_ELEM_TOTAL_BAR_MASS" },
                 new[] { "Total Bar Mass", "Masa total de barra", "Masa total de barras", "Peso total" });
 
             Totales(cantidad, longTotal, masaTotal);
 
+            // Orden: partición (si no hay, queda un grupo en blanco), luego elemento, luego tipo.
             if (particion != null)
             {
                 def.AddSortGroupField(new ScheduleSortGroupField(particion.FieldId)
                 {
-                    ShowHeader = true,
-                    ShowFooter = true,
-                    ShowFooterTitle = true,
-                    ShowBlankLine = true,
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
                 });
             }
-            if (diametro != null)
+            if (hostCategoria != null && cat == null)
             {
-                def.AddSortGroupField(new ScheduleSortGroupField(diametro.FieldId) { ShowFooter = true });
+                def.AddSortGroupField(new ScheduleSortGroupField(hostCategoria.FieldId)
+                {
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true,
+                });
             }
-            if (tipo != null)
-            {
-                def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
-            }
+            if (tipo != null) def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
 
             def.IsItemized = false;
             def.ShowGrandTotal = true;
             def.ShowGrandTotalTitle = true;
-            def.GrandTotalTitle = "Total acero " + cat.Nombre;
+            def.GrandTotalTitle = cat == null ? "Total acero" : "Total acero " + cat.Nombre;
 
-            if (hostCategoria != null)
+            if (cat != null && hostCategoria != null)
             {
-                string nombreCategoria = Category.GetCategory(_doc, cat.Categoria)?.Name;
-                if (!string.IsNullOrEmpty(nombreCategoria))
-                {
-                    try
-                    {
-                        def.AddFilter(new ScheduleFilter(hostCategoria.FieldId, ScheduleFilterType.Equal, nombreCategoria));
-                        filtrada = true;
-                    }
-                    catch (Exception ex)
-                    {
-                        Advertencias.Add($"Acero {cat.Nombre}: no se pudo filtrar por categoría del anfitrión ({ex.Message}).");
-                    }
-                }
+                filtrada = FiltrarPorCategoriaAnfitrion(def, hostCategoria, cat);
             }
 
-            if (pesoUnitario == null)
+            if (pesoUnitario == null && cat == null)
             {
                 Advertencias.Add("No se encontró el parámetro de peso unitario \"" + _op.NombreParametroPeso +
-                                 "\" en los tipos de barra; la tabla de acero de Revit no incluye esa columna.");
+                                 "\" en los tipos de barra; las tablas de acero no incluyen esa columna.");
             }
 
             return vs;
+        }
+
+        private bool FiltrarPorCategoriaAnfitrion(ScheduleDefinition def, ScheduleField hostCategoria, CategoriaMetrado cat)
+        {
+            Category categoria = Category.GetCategory(_doc, cat.Categoria);
+            string nombre = categoria?.Name;
+
+            // 1) El campo se comporta como texto.
+            if (!string.IsNullOrEmpty(nombre))
+            {
+                try
+                {
+                    def.AddFilter(new ScheduleFilter(hostCategoria.FieldId, ScheduleFilterType.Equal, nombre));
+                    return true;
+                }
+                catch (Exception) { }
+            }
+
+            // 2) El campo guarda el id de la categoría.
+            try
+            {
+                def.AddFilter(new ScheduleFilter(hostCategoria.FieldId, ScheduleFilterType.Equal, new ElementId(cat.Categoria)));
+                return true;
+            }
+            catch (Exception) { }
+
+            // 3) Último intento: "contiene" con el nombre.
+            if (!string.IsNullOrEmpty(nombre))
+            {
+                try
+                {
+                    def.AddFilter(new ScheduleFilter(hostCategoria.FieldId, ScheduleFilterType.Contains, nombre));
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Advertencias.Add($"Acero {cat.Nombre}: no se pudo filtrar por categoría del anfitrión ({ex.Message}).");
+                }
+            }
+            return false;
         }
 
         // ------------------------------------------------------------------
@@ -305,18 +424,11 @@ namespace ExportacionMetrados.Core.Metrado
                     f.ColumnHeading = encabezado;
                     return f;
                 }
-                catch (Exception)
-                {
-                    // Campo no admitido en esta tabla: probar el siguiente candidato.
-                }
+                catch (Exception) { }
             }
             return null;
         }
 
-        /// <summary>
-        /// Busca un campo por nombre de BuiltInParameter (resuelto en tiempo de ejecución,
-        /// por si no existe en la versión de Revit compilada) o por el nombre visible.
-        /// </summary>
         private ScheduleField AgregarPorNombre(ScheduleDefinition def, IList<SchedulableField> campos, string encabezado,
             string[] nombresBuiltIn, string[] nombresVisibles)
         {

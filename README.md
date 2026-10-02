@@ -116,29 +116,30 @@ El botón **Metrado automático** crea las tablas de planificación de metrado *
 y, si se marca la opción, las exporta a Excel en la misma operación. (El botón *Exportar a Excel* es una
 función aparte para tablas que ya existen en el proyecto.)
 
-**Tablas que crea en Revit** (una de concreto y una de acero por cada tipo de elemento marcado):
+**Tablas que crea en Revit** por cada tipo de elemento marcado:
 
-| Tabla | Categoría | Campos | Agrupación |
-|---|---|---|---|
-| `Metrado concreto - Vigas` | Armazón estructural | Nivel, Elemento (familia y tipo), Material, Cantidad, Longitud, Volumen | Por nivel (encabezado, pie con totales), luego tipo; total general |
-| `Metrado concreto - Columnas` | Pilares estructurales | Nivel base, Elemento, Material, Cantidad, Longitud, Volumen | Igual |
-| `Metrado concreto - Losas` | Suelos | Nivel, Elemento, Cantidad, Área, Espesor, Volumen | Igual |
-| `Metrado concreto - Cimentaciones` / `Muros` | Opcionales | Nivel, Elemento, Material, Cantidad, Área/Longitud, Espesor, Volumen | Igual |
-| `Metrado acero - <elemento>` | Armadura estructural | Partición, Elemento anfitrión, Marca anfitrión, Tipo de barra, Diámetro, N° barras, Longitud de barra, Longitud total, Peso unitario | Por partición (encabezado, pie con totales), luego diámetro; total general. Filtrada por categoría del anfitrión |
+| Tabla | Contenido | Agrupación |
+|---|---|---|
+| `Metrado concreto - Vigas` | Elemento (familia y tipo), Material, Cantidad, Longitud, Volumen. Solo elementos con material de concreto. | Por tipo; total general. **Sin niveles** (una viga puede cruzar varios). |
+| `Metrado concreto - Columnas` / `Losas` / `Cimentaciones` / `Muros` | Nivel, Elemento, Material, Cantidad, Longitud o Área, Espesor, Volumen | Por nivel (encabezado y pie con totales), luego tipo; total general |
+| `Metrado acero estructural - <elemento>` | Igual que la anterior pero con los elementos cuyo material **no** es concreto (perfiles metálicos, madera...). Solo se crea si existen. | Igual |
+| `Metrado acero - <elemento>` | Refuerzo cuyo anfitrión es de esa categoría: Partición, Elemento, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario | Por partición (si no hay, grupo en blanco), luego tipo de barra; total general |
+| `Metrado acero - General` | Todo el refuerzo del modelo | Partición → Elemento anfitrión → Tipo de barra, con subtotales en cada nivel |
 
-- Las tablas no están desglosadas por elemento (una fila por tipo y nivel). Si quiere ver cada elemento,
-  active "Desglosar cada ejemplar" en la tabla.
-- Las tablas de concreto llevan un filtro "Material estructural contiene *Concreto*" (texto editable en la
-  ventana; use "Hormigón" si sus materiales se llaman así). Puede desactivarse.
-- **Peso del acero**: la tabla de Revit incluye la columna con el parámetro de peso por metro del tipo de
-  barra (por defecto `Bar Mass per Unit Length`, editable en la ventana). Revit no permite crear valores
-  calculados desde la API, así que la columna "Peso total = Longitud total × Peso unitario" debe añadirse una
-  sola vez a mano en la tabla (Campos → Valor calculado). Como el plugin **reutiliza** las tablas existentes
-  en lugar de recrearlas, esa columna se conserva en las siguientes ejecuciones y se exporta a Excel.
+- Las tablas no están desglosadas por elemento (una fila por tipo). Si quiere ver cada elemento, active
+  "Desglosar cada ejemplar" en la tabla.
+- **Separación concreto / metálico**: el plugin clasifica cada material estructural usado en la categoría
+  (por clase, nombre o activo estructural). Si el texto de la ventana ("Concreto" por defecto) distingue bien
+  los materiales del modelo se usa un filtro "Material contiene / no contiene"; si no, se excluyen los
+  materiales del otro grupo uno a uno (Revit admite hasta 8 filtros por tabla).
+- **Peso del acero**: la tabla incluye la columna con el parámetro de peso por metro del tipo de barra (por
+  defecto `Bar Mass per Unit Length`, editable en la ventana). Revit no permite crear valores calculados
+  desde la API, así que la columna "Peso total = Longitud total × Peso unitario" debe añadirse una sola vez
+  a mano en la tabla (Campos → Valor calculado). Como el plugin **reutiliza** las tablas existentes, esa
+  columna se conserva en las siguientes ejecuciones y se exporta a Excel.
 - Si ya existe una tabla con el mismo nombre se reutiliza tal cual. La opción "Regenerar" la borra y la
-  crea de nuevo (se pierden columnas añadidas a mano y su colocación en planos).
-- Si la versión de Revit no permite filtrar el acero por categoría del anfitrión, se crea una sola tabla
-  `Metrado acero` agrupada por partición.
+  crea de nuevo (se pierden columnas añadidas a mano y su colocación en planos). Tras actualizar el plugin
+  conviene regenerar una vez para obtener la nueva estructura.
 
 **Exportación a Excel en la misma operación** (opcional): el libro contiene
 

@@ -189,44 +189,49 @@ namespace ExportacionMetrados.Core.Metrado
             return 0;
         }
 
-        private Material ObtenerMaterialEstructural(Element e)
-        {
-            Parameter p = e.get_Parameter(BuiltInParameter.STRUCTURAL_MATERIAL_PARAM);
-            if (p == null || p.AsElementId() == ElementId.InvalidElementId)
-            {
-                var tipo = _doc.GetElement(e.GetTypeId());
-                p = tipo?.get_Parameter(BuiltInParameter.STRUCTURAL_MATERIAL_PARAM);
-            }
-            if (p != null && p.AsElementId() != ElementId.InvalidElementId)
-            {
-                return _doc.GetElement(p.AsElementId()) as Material;
-            }
-            return e.Category?.Material;
-        }
+        private Material ObtenerMaterialEstructural(Element e) => MaterialEstructuralDe(_doc, e);
 
         private bool EsMaterialConcreto(Material mat)
         {
             if (_cacheMaterialConcreto.TryGetValue(mat.Id, out bool cached)) return cached;
-
-            bool resultado = ContienePalabraConcreto(mat.MaterialClass) || ContienePalabraConcreto(mat.Name);
-
-            if (!resultado)
-            {
-                // Comprobar también el material estructural asociado (StructuralAssetId)
-                try
-                {
-                    var activo = _doc.GetElement(mat.StructuralAssetId) as PropertySetElement;
-                    StructuralAsset sa = activo?.GetStructuralAsset();
-                    if (sa != null && sa.StructuralAssetClass == StructuralAssetClass.Concrete)
-                    {
-                        resultado = true;
-                    }
-                }
-                catch { }
-            }
-
+            bool resultado = MaterialEsConcreto(_doc, mat);
             _cacheMaterialConcreto[mat.Id] = resultado;
             return resultado;
+        }
+
+        /// <summary>
+        /// Un material es de concreto si su clase o nombre lo indican, o si su
+        /// activo estructural es de clase Concrete.
+        /// </summary>
+        public static bool MaterialEsConcreto(Document doc, Material mat)
+        {
+            if (mat == null) return false;
+            if (ContienePalabraConcreto(mat.MaterialClass) || ContienePalabraConcreto(mat.Name)) return true;
+
+            try
+            {
+                var activo = doc.GetElement(mat.StructuralAssetId) as PropertySetElement;
+                StructuralAsset sa = activo?.GetStructuralAsset();
+                if (sa != null && sa.StructuralAssetClass == StructuralAssetClass.Concrete) return true;
+            }
+            catch { }
+            return false;
+        }
+
+        /// <summary>Material estructural de un elemento (instancia, tipo o categoría).</summary>
+        public static Material MaterialEstructuralDe(Document doc, Element e)
+        {
+            Parameter p = e.get_Parameter(BuiltInParameter.STRUCTURAL_MATERIAL_PARAM);
+            if (p == null || p.AsElementId() == ElementId.InvalidElementId)
+            {
+                var tipo = doc.GetElement(e.GetTypeId());
+                p = tipo?.get_Parameter(BuiltInParameter.STRUCTURAL_MATERIAL_PARAM);
+            }
+            if (p != null && p.AsElementId() != ElementId.InvalidElementId)
+            {
+                return doc.GetElement(p.AsElementId()) as Material;
+            }
+            return e.Category?.Material;
         }
 
         private static bool ContienePalabraConcreto(string texto)

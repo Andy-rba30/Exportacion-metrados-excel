@@ -58,6 +58,15 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>Texto del filtro de material en las tablas de Revit.</summary>
         public string TextoMaterialConcreto { get; set; } = "Concreto";
 
+        /// <summary>Crear tablas aparte para los elementos de acero estructural (perfiles metálicos).</summary>
+        public bool TablasAceroEstructural { get; set; } = true;
+
+        /// <summary>Crear una tabla de acero de refuerzo por cada categoría de anfitrión.</summary>
+        public bool TablasAceroPorElemento { get; set; } = true;
+
+        /// <summary>Crear una tabla general de acero de refuerzo (todas las categorías).</summary>
+        public bool TablaAceroGeneral { get; set; } = true;
+
         /// <summary>Exportar las tablas generadas a Excel en la misma operación.</summary>
         public bool ExportarExcel { get; set; } = true;
 
