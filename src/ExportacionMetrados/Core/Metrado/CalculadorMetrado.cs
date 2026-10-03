@@ -87,10 +87,7 @@ namespace ExportacionMetrados.Core.Metrado
 
         private void CalcularConcreto(CategoriaMetrado cat, ResultadoMetrado resultado)
         {
-            var elementos = new FilteredElementCollector(_doc)
-                .OfCategory(cat.Categoria)
-                .WhereElementIsNotElementType()
-                .ToElements();
+            var elementos = cat.Elementos(_doc).ToElements();
 
             foreach (Element e in elementos)
             {
@@ -110,7 +107,9 @@ namespace ExportacionMetrados.Core.Metrado
 
                     if (_opciones.SoloMaterialConcreto && clasificacion != ClasificadorElementos.ValorConcreto)
                     {
-                        resultado.ElementosOmitidosPorMaterial++;
+                        // En "Otros" lo normal es que haya piezas sin clasificar (modelos genéricos
+                        // varios): no se cuentan como omitidas para no alarmar en el resumen.
+                        if (!cat.EsOtros) resultado.ElementosOmitidosPorMaterial++;
                         continue;
                     }
 
@@ -523,7 +522,7 @@ namespace ExportacionMetrados.Core.Metrado
         {
             // El acero se mide en TODAS las armaduras del modelo (el peso se escribe
             // en cada una); las categorías marcadas solo ordenan el resumen.
-            var mapaCategorias = CategoriaMetrado.Predeterminadas().ToDictionary(c => new ElementId(c.Categoria), c => c.Nombre);
+            List<CategoriaMetrado> catalogo = CategoriaMetrado.Predeterminadas();
 
             var barras = new List<Element>();
             barras.AddRange(new FilteredElementCollector(_doc).OfClass(typeof(Rebar)).ToElements());
@@ -540,10 +539,8 @@ namespace ExportacionMetrados.Core.Metrado
                     Element host = hostId != ElementId.InvalidElementId ? _doc.GetElement(hostId) : null;
                     if (host?.Category == null) continue;
 
-                    if (!mapaCategorias.TryGetValue(host.Category.Id, out string nombreCategoria))
-                    {
-                        nombreCategoria = host.Category.Name; // anfitrión de otra categoría
-                    }
+                    // Anfitrión de otra categoría: el nombre de la categoría.
+                    string nombreCategoria = CategoriaMetrado.DeCategoria(catalogo, host.Category.Id)?.Nombre ?? host.Category.Name;
 
                     BarraAcero medida = MedirBarra(barra, host, nombreCategoria);
                     if (medida != null) resultado.Acero.Add(medida);
@@ -563,10 +560,7 @@ namespace ExportacionMetrados.Core.Metrado
                     var malla = (FabricSheet)elemento;
                     Element host = malla.HostId != ElementId.InvalidElementId ? _doc.GetElement(malla.HostId) : null;
                     if (host?.Category == null) continue;
-                    if (!mapaCategorias.TryGetValue(host.Category.Id, out string nombreCategoria))
-                    {
-                        nombreCategoria = host.Category.Name;
-                    }
+                    string nombreCategoria = CategoriaMetrado.DeCategoria(catalogo, host.Category.Id)?.Nombre ?? host.Category.Name;
 
                     BarraAcero medida = MedirMalla(malla, host, nombreCategoria);
                     if (medida != null) resultado.Acero.Add(medida);

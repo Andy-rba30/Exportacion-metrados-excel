@@ -5,57 +5,88 @@ using Autodesk.Revit.DB;
 namespace ExportacionMetrados.Core.Metrado
 {
     /// <summary>
-    /// Categorías estructurales que el metrado automático puede procesar.
+    /// Grupo de elementos que el metrado automático procesa: una categoría de Revit
+    /// (vigas, columnas, cimentaciones, losas, muros) o varias ("Otros": conexiones
+    /// estructurales, rigidizadores, modelos genéricos y cubiertas).
     /// </summary>
     public class CategoriaMetrado
     {
         public CategoriaMetrado(BuiltInCategory categoria, string nombre, string nombreParticion, bool seleccionada,
             string descripcion = null)
+            : this(new[] { categoria }, nombre, nombreParticion, seleccionada, descripcion, otros: false)
         {
-            Categoria = categoria;
+        }
+
+        public CategoriaMetrado(IList<BuiltInCategory> categorias, string nombre, string nombreParticion, bool seleccionada,
+            string descripcion, bool otros)
+        {
+            Categorias = new List<BuiltInCategory>(categorias);
             Nombre = nombre;
             NombreParticion = nombreParticion;
             Seleccionada = seleccionada;
             Descripcion = descripcion;
+            EsOtros = otros;
         }
 
-        public BuiltInCategory Categoria { get; }
+        /// <summary>Categorías de Revit que forman el grupo (una sola salvo en "Otros").</summary>
+        public IReadOnlyList<BuiltInCategory> Categorias { get; }
+        /// <summary>Primera categoría del grupo: la única en los grupos de una categoría.</summary>
+        public BuiltInCategory Categoria => Categorias[0];
+        /// <summary>True si el grupo reúne varias categorías de Revit.</summary>
+        public bool EsGrupo => Categorias.Count > 1;
         public string Nombre { get; }
-        /// <summary>Texto que se escribe en la partición del acero alojado en esta categoría.</summary>
+        /// <summary>
+        /// Texto que identifica al grupo: se escribe en "Metrado - Elemento" de sus elementos
+        /// y en el refuerzo que alojan (y en la partición vacía de ese refuerzo).
+        /// </summary>
         public string NombreParticion { get; }
         public bool Seleccionada { get; set; }
-        /// <summary>Explicación para la ventana (qué entra en la categoría y cómo se metra).</summary>
+        /// <summary>Explicación para la ventana (qué entra en el grupo y cómo se metra).</summary>
         public string Descripcion { get; }
 
-        /// <summary>True si la categoría admite elementos metálicos (perfiles, conexiones).</summary>
-        public bool PuedeSerMetalica =>
-            Categoria == BuiltInCategory.OST_StructuralFraming || Categoria == BuiltInCategory.OST_StructuralColumns ||
-            SoloMetalica;
-
         /// <summary>
-        /// True en las conexiones estructurales (planchas, pernos, coberturas metálicas
-        /// importadas de IFC): no se crea tabla de concreto y, sin otro dato, sus
-        /// elementos se asumen de acero.
+        /// True en "Otros": lo que no es viga, columna, cimentación, losa ni muro
+        /// (conexiones, planchas, coberturas metálicas, modelos genéricos, cubiertas).
         /// </summary>
-        public bool SoloMetalica => Categoria == BuiltInCategory.OST_StructConnections;
+        public bool EsOtros { get; }
+
+        /// <summary>True si el grupo admite elementos metálicos (perfiles, conexiones, planchas).</summary>
+        public bool PuedeSerMetalica =>
+            Categoria == BuiltInCategory.OST_StructuralFraming || Categoria == BuiltInCategory.OST_StructuralColumns || EsOtros;
 
         /// <summary>
         /// True si el peso se calcula como volumen × densidad (piezas sin longitud ni
         /// sección: planchas, conexiones, coberturas) en lugar de longitud × sección × densidad.
         /// </summary>
-        public bool PesoPorVolumen => SoloMetalica;
+        public bool PesoPorVolumen => EsOtros;
+
+        /// <summary>True si el grupo puede alojar refuerzo (tablas y filtros de acero por elemento).</summary>
+        public bool AlojaRefuerzo => !EsOtros;
 
         /// <summary>
-        /// False en vigas, losas y cimentaciones: su metrado no se agrupa por nivel (una
-        /// viga puede cruzar varios, las losas se metran por tipo en todo el edificio y
-        /// las cimentaciones comparten el nivel de fundación), solo por tipo. Columnas y
-        /// muros sí van por nivel. Vale tanto para las tablas de Revit como para el Excel.
+        /// True solo en columnas y muros: su metrado se agrupa por nivel. Vigas (pueden
+        /// cruzar varios), losas (se metran por tipo en todo el edificio), cimentaciones
+        /// (comparten el nivel de fundación) y "Otros" van solo por tipo. Vale tanto para
+        /// las tablas de Revit como para el Excel.
         /// </summary>
         public bool AgruparPorNivel =>
-            Categoria != BuiltInCategory.OST_StructuralFraming &&
-            Categoria != BuiltInCategory.OST_StructuralFoundation &&
-            Categoria != BuiltInCategory.OST_Floors &&
-            !SoloMetalica;
+            !EsOtros && (Categoria == BuiltInCategory.OST_StructuralColumns || Categoria == BuiltInCategory.OST_Walls);
+
+        /// <summary>Ejemplares (no tipos) del documento que pertenecen al grupo.</summary>
+        public FilteredElementCollector Elementos(Document doc)
+        {
+            var colector = new FilteredElementCollector(doc);
+            if (EsGrupo) colector.WherePasses(new ElementMulticategoryFilter(new List<BuiltInCategory>(Categorias)));
+            else colector.OfCategory(Categoria);
+            return colector.WhereElementIsNotElementType();
+        }
+
+        /// <summary>True si la categoría (id) pertenece al grupo.</summary>
+        public bool Contiene(ElementId idCategoria)
+        {
+            if (idCategoria == null) return false;
+            return Categorias.Any(c => idCategoria == new ElementId(c));
+        }
 
         public static List<CategoriaMetrado> Predeterminadas() => new List<CategoriaMetrado>
         {
@@ -69,19 +100,30 @@ namespace ExportacionMetrados.Core.Metrado
                 "Suelos estructurales: losas, solados."),
             new CategoriaMetrado(BuiltInCategory.OST_Walls,                "Muros",         "MUROS",     false,
                 "Muros (placas) de concreto."),
-            new CategoriaMetrado(BuiltInCategory.OST_StructConnections,    "Conexiones",    "CONEXIONES", false,
-                "Conexiones estructurales: planchas, pernos y coberturas metálicas (por ejemplo importadas de IFC). " +
-                "Sin longitud ni sección, se metran por peso = volumen × densidad del acero."),
+            new CategoriaMetrado(
+                new[]
+                {
+                    BuiltInCategory.OST_StructConnections, BuiltInCategory.OST_StructuralStiffener,
+                    BuiltInCategory.OST_GenericModel, BuiltInCategory.OST_Roofs,
+                },
+                "Otros", "OTROS", true,
+                "Lo que no es viga, columna, cimentación, losa ni muro: conexiones estructurales (planchas, pernos, " +
+                "coberturas metálicas importadas de IFC), rigidizadores, modelos genéricos y cubiertas. Las piezas " +
+                "metálicas van a \"Metrado acero estructural - Otros\" pesadas por volumen × densidad; las de concreto, " +
+                "a una tabla de concreto por categoría.",
+                otros: true),
         };
 
         private static readonly List<CategoriaMetrado> Catalogo = Predeterminadas();
 
-        /// <summary>Entrada del catálogo que corresponde a la categoría del elemento, o null si no se metra.</summary>
-        public static CategoriaMetrado De(Element e)
+        /// <summary>Grupo del catálogo al que pertenece la categoría del elemento, o null si no se metra.</summary>
+        public static CategoriaMetrado De(Element e) => DeCategoria(Catalogo, e?.Category?.Id);
+
+        /// <summary>Grupo de la lista que contiene la categoría (id), o null.</summary>
+        public static CategoriaMetrado DeCategoria(IEnumerable<CategoriaMetrado> grupos, ElementId idCategoria)
         {
-            ElementId id = e?.Category?.Id;
-            if (id == null) return null;
-            return Catalogo.FirstOrDefault(c => id == new ElementId(c.Categoria));
+            if (idCategoria == null) return null;
+            return grupos.FirstOrDefault(g => g.Contiene(idCategoria));
         }
     }
 

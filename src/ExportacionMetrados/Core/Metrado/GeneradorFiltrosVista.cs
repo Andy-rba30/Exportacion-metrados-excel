@@ -44,12 +44,13 @@ namespace ExportacionMetrados.Core.Metrado
             { "Cimentaciones", new Color(140, 90, 30) },   // marrón
             { "Losas",         new Color(0, 150, 70) },    // verde
             { "Muros",         new Color(112, 48, 160) },  // morado
+            { "Otros",         new Color(120, 120, 200) }, // lavanda
         };
         private static readonly Dictionary<string, Color> ColoresAceroEstructural = new Dictionary<string, Color>
         {
             { "Vigas",      new Color(0, 190, 240) },      // celeste
             { "Columnas",   new Color(255, 0, 255) },      // magenta
-            { "Conexiones", new Color(255, 230, 0) },      // amarillo
+            { "Otros",      new Color(255, 230, 0) },      // amarillo
         };
         private static readonly Dictionary<string, Color> ColoresRefuerzo = new Dictionary<string, Color>
         {
@@ -85,15 +86,12 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 foreach (CategoriaMetrado cat in categorias)
                 {
-                    if (!cat.SoloMetalica)
-                    {
-                        Agregar(filtros, Crear(PrefijoConcreto + cat.Nombre, new[] { cat.Categoria }, idMaterial, ClasificadorElementos.ValorConcreto),
-                            ColorDe(ColoresConcreto, cat.Nombre));
-                    }
+                    Agregar(filtros, Crear(PrefijoConcreto + cat.Nombre, cat.Categorias, idMaterial, ClasificadorElementos.ValorConcreto),
+                        ColorDe(ColoresConcreto, cat.Nombre));
 
                     if (cat.PuedeSerMetalica)
                     {
-                        Agregar(filtros, Crear(PrefijoAceroEstructural + cat.Nombre, new[] { cat.Categoria }, idMaterial, ClasificadorElementos.ValorAceroEstructural),
+                        Agregar(filtros, Crear(PrefijoAceroEstructural + cat.Nombre, cat.Categorias, idMaterial, ClasificadorElementos.ValorAceroEstructural),
                             ColorDe(ColoresAceroEstructural, cat.Nombre));
                     }
                 }
@@ -112,7 +110,7 @@ namespace ExportacionMetrados.Core.Metrado
                 }
                 foreach (CategoriaMetrado cat in categorias)
                 {
-                    if (cat.SoloMetalica) continue;   // las conexiones no alojan refuerzo
+                    if (!cat.AlojaRefuerzo) continue;
                     Agregar(filtros, Crear(PrefijoRefuerzo + cat.NombreParticion, ClasificadorElementos.CategoriasRefuerzo, idRefuerzo, cat.NombreParticion),
                         ColorDe(ColoresRefuerzo, cat.NombreParticion));
                 }

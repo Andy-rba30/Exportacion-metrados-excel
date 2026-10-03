@@ -55,13 +55,14 @@ namespace ExportacionMetrados
                     ? GestorSubproyectos.Reservar(doc, uidoc.ActiveView, opciones, advertencias)
                     : 0;
 
-                int clasificados = 0, particionados = 0, elementosRefuerzo = 0, pesados = 0, perfilesPesados = 0;
+                int clasificados = 0, particionados = 0, elementosRefuerzo = 0, elementosGrupo = 0, pesados = 0, perfilesPesados = 0;
                 using (var t = new Transaction(doc, "Metrado automático"))
                 {
                     t.Start();
 
                     // 1a. Parámetro "Metrado - Material" y clasificación concreto / metálico.
-                    var categoriasBic = opciones.Categorias.Where(c => c.Seleccionada).Select(c => c.Categoria).ToList();
+                    var categoriasSeleccionadas = opciones.Categorias.Where(c => c.Seleccionada).ToList();
+                    var categoriasBic = categoriasSeleccionadas.SelectMany(c => c.Categorias).Distinct().ToList();
                     if (ClasificadorElementos.AsegurarParametroMaterial(doc, categoriasBic, advertencias))
                     {
                         doc.Regenerate();
@@ -75,14 +76,15 @@ namespace ExportacionMetrados
                             opciones.Categorias, opciones.SobrescribirParticiones, null, advertencias);
                     }
 
-                    // 1b'. "Metrado - Elemento" en cada refuerzo (tipo de anfitrión real), base de
-                    //      los filtros de vista; no depende de cómo estén numeradas las particiones.
-                    if ((opciones.IncluirAcero || opciones.CrearFiltrosVista) &&
-                        ClasificadorElementos.AsegurarParametroElementoRefuerzo(doc, advertencias))
+                    // 1b'. "Metrado - Elemento": en cada refuerzo el grupo de su anfitrión real (base de
+                    //      los filtros y tablas de acero por elemento; no depende de las particiones) y en
+                    //      cada elemento su propio grupo (VIGAS, ..., OTROS; filtra la tabla de "Otros").
+                    if (ClasificadorElementos.AsegurarParametroElemento(doc, categoriasBic, advertencias))
                     {
                         doc.Regenerate();
                         elementosRefuerzo = ClasificadorElementos.RellenarElementoRefuerzo(doc, ClasificadorElementos.TodoElRefuerzo(doc),
                             opciones.Categorias, advertencias);
+                        elementosGrupo = ClasificadorElementos.RellenarElementoEnElementos(doc, categoriasSeleccionadas, advertencias);
                     }
 
                     // 1c. Peso en kg: armaduras (longitud total × kg/m) y perfiles metálicos
@@ -125,7 +127,7 @@ namespace ExportacionMetrados
                 }
 
                 MostrarResumen(generador, filtros, tablas, resultado, opciones, advertencias, subproyectos, clasificados, particionados,
-                    elementosRefuerzo, pesados, perfilesPesados);
+                    elementosRefuerzo, elementosGrupo, pesados, perfilesPesados);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -146,7 +148,7 @@ namespace ExportacionMetrados
 
         private static void MostrarResumen(GeneradorTablasRevit generador, GeneradorFiltrosVista filtros, List<ViewSchedule> tablas,
             ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias, int subproyectos, int clasificados,
-            int particionados, int elementosRefuerzo, int pesados, int perfilesPesados)
+            int particionados, int elementosRefuerzo, int elementosGrupo, int pesados, int perfilesPesados)
         {
             double m3 = resultado.Concreto.Sum(c => c.VolumenM3);
             double kg = resultado.Acero.Sum(a => a.PesoKg);
@@ -159,6 +161,7 @@ namespace ExportacionMetrados
                 $"Elementos clasificados (Metrado - Material): {clasificados}\n" +
                 $"Refuerzos con partición asignada: {particionados}\n" +
                 $"Refuerzos con elemento anfitrión (Metrado - Elemento): {elementosRefuerzo}\n" +
+                $"Elementos con grupo de metrado (Metrado - Elemento): {elementosGrupo}\n" +
                 $"Refuerzos con peso actualizado: {pesados}\n" +
                 $"Perfiles metálicos con peso actualizado: {perfilesPesados}\n" +
                 (filtros != null

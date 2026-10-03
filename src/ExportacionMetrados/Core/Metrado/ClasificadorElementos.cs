@@ -23,9 +23,10 @@ namespace ExportacionMetrados.Core.Metrado
 
         public const string NombreParametroPeso = "Metrado - Peso (kg)";
         /// <summary>
-        /// Parámetro de texto en el refuerzo con el tipo de elemento anfitrión (VIGAS,
-        /// COLUMNAS, CIMIENTOS, LOSAS, MUROS). Lo usan los filtros de vista: no depende
-        /// de la partición, que el usuario puede tener numerada a su manera.
+        /// Parámetro de texto con el grupo de metrado: en vigas, columnas, losas... el suyo
+        /// (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS, OTROS); en el refuerzo, el del
+        /// anfitrión. Lo usan las tablas y los filtros de vista: no depende de la
+        /// partición, que el usuario puede tener numerada a su manera.
         /// </summary>
         public const string NombreParametroElementoRefuerzo = "Metrado - Elemento";
 
@@ -85,14 +86,18 @@ namespace ExportacionMetrados.Core.Metrado
         }
 
         /// <summary>
-        /// Crea y vincula "Metrado - Elemento" a las armaduras y mallas: tipo de elemento
-        /// anfitrión (VIGAS, COLUMNAS...). Lo usan los filtros de vista.
+        /// Crea y vincula "Metrado - Elemento" a las armaduras y mallas (grupo del
+        /// anfitrión) y a las categorías de elementos indicadas (su propio grupo).
         /// </summary>
-        public static bool AsegurarParametroElementoRefuerzo(Document doc, List<string> advertencias)
+        public static bool AsegurarParametroElemento(Document doc, IEnumerable<BuiltInCategory> categoriasElementos,
+            List<string> advertencias)
         {
+            var categorias = new List<BuiltInCategory>(CategoriasRefuerzo);
+            categorias.AddRange(categoriasElementos);
             return AsegurarParametro(doc, NombreParametroElementoRefuerzo, GuidParametroElementoRefuerzo, true,
-                "Tipo de elemento anfitrión del refuerzo, escrito por el plugin de metrado: VIGAS, COLUMNAS, CIMIENTOS, LOSAS o MUROS.",
-                CategoriasRefuerzo, advertencias);
+                "Grupo de metrado escrito por el plugin: VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS u OTROS " +
+                "(en el refuerzo, el de su elemento anfitrión).",
+                categorias, advertencias);
         }
 
         /// <summary>Id del parámetro compartido "Metrado - Elemento" (null si aún no existe).</summary>
@@ -109,7 +114,7 @@ namespace ExportacionMetrados.Core.Metrado
         public static bool AsegurarParametroPeso(Document doc, List<string> advertencias)
         {
             var categorias = new List<BuiltInCategory>(CategoriasRefuerzo);
-            categorias.AddRange(CategoriaMetrado.Predeterminadas().Where(c => c.PuedeSerMetalica).Select(c => c.Categoria));
+            categorias.AddRange(CategoriaMetrado.Predeterminadas().Where(c => c.PuedeSerMetalica).SelectMany(c => c.Categorias));
             return AsegurarParametro(doc, NombreParametroPeso, GuidParametroPeso, false,
                 "Peso en kg calculado por el plugin: armaduras = longitud total × kg/m; " +
                 "perfiles metálicos = longitud × área de sección × densidad del acero al carbono; " +
@@ -350,13 +355,20 @@ namespace ExportacionMetrados.Core.Metrado
 
             // 5. Sin ningún dato útil (sin materiales o solo genéricos): losas, muros y
             //    cimentaciones se asumen de concreto, igual que hace el resumen calculado;
-            //    las conexiones estructurales, de acero; vigas y columnas, que pueden ser
-            //    de ambos, quedan como OTRO. Con un material real que no es concreto, acero
-            //    ni madera (acabados...), OTRO.
+            //    conexiones y rigidizadores, de acero; el resto (vigas y columnas, que
+            //    pueden ser de ambos; modelos genéricos; cubiertas) queda como OTRO. Con un
+            //    material real que no es concreto, acero ni madera (acabados...), OTRO.
             bool sinInformacion = materiales.Count == 0 || materiales.All(EsMaterialGenerico);
             if (!sinInformacion) return ValorOtro;
-            if (catMetrado?.SoloMetalica == true) return ValorAceroEstructural;
-            return categoriaMetalica ? ValorOtro : ValorConcreto;
+            if (EsDeCategoria(e, BuiltInCategory.OST_StructConnections, BuiltInCategory.OST_StructuralStiffener)) return ValorAceroEstructural;
+            if (EsDeCategoria(e, BuiltInCategory.OST_Floors, BuiltInCategory.OST_Walls, BuiltInCategory.OST_StructuralFoundation)) return ValorConcreto;
+            return ValorOtro;
+        }
+
+        private static bool EsDeCategoria(Element e, params BuiltInCategory[] categorias)
+        {
+            ElementId id = e.Category?.Id;
+            return id != null && categorias.Any(c => id == new ElementId(c));
         }
 
         /// <summary>CONCRETO, ACERO ESTRUCTURAL o MADERA según los materiales; null si ninguno lo indica.</summary>
@@ -521,7 +533,6 @@ namespace ExportacionMetrados.Core.Metrado
         public static int RellenarElementoRefuerzo(Document doc, IEnumerable<Element> refuerzo, IList<CategoriaMetrado> categorias,
             List<string> advertencias)
         {
-            var mapa = categorias.ToDictionary(c => new ElementId(c.Categoria), c => c.NombreParticion);
             int n = 0;
 
             foreach (Element r in refuerzo)
@@ -534,7 +545,7 @@ namespace ExportacionMetrados.Core.Metrado
                     Element host = doc.GetElement(AnfitrionDe(r));
                     string valor;
                     if (host?.Category == null) valor = "(SIN ANFITRIÓN)";
-                    else if (!mapa.TryGetValue(host.Category.Id, out valor)) valor = host.Category.Name.ToUpperInvariant();
+                    else valor = CategoriaMetrado.DeCategoria(categorias, host.Category.Id)?.NombreParticion ?? host.Category.Name.ToUpperInvariant();
 
                     if (!string.Equals(p.AsString() ?? string.Empty, valor, StringComparison.Ordinal))
                     {
@@ -551,6 +562,38 @@ namespace ExportacionMetrados.Core.Metrado
         }
 
         /// <summary>
+        /// Escribe "Metrado - Elemento" en cada elemento de los grupos indicados con el
+        /// nombre de su grupo (VIGAS, COLUMNAS, ..., OTROS). Es lo que filtra la tabla
+        /// "Metrado acero estructural - Otros", que reúne varias categorías de Revit.
+        /// Devuelve el número de elementos actualizados.
+        /// </summary>
+        public static int RellenarElementoEnElementos(Document doc, IEnumerable<CategoriaMetrado> categorias, List<string> advertencias)
+        {
+            int n = 0;
+            foreach (CategoriaMetrado cat in categorias)
+            {
+                foreach (Element e in cat.Elementos(doc).ToElements())
+                {
+                    try
+                    {
+                        Parameter p = e.LookupParameter(NombreParametroElementoRefuerzo);
+                        if (p == null || p.IsReadOnly || p.StorageType != StorageType.String) continue;
+                        if (!string.Equals(p.AsString() ?? string.Empty, cat.NombreParticion, StringComparison.Ordinal))
+                        {
+                            p.Set(cat.NombreParticion);
+                            n++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        advertencias.Add($"No se pudo escribir \"{NombreParametroElementoRefuerzo}\" en el elemento {e.Id}: {ex.Message}");
+                    }
+                }
+            }
+            return n;
+        }
+
+        /// <summary>
         /// Escribe la partición de cada refuerzo. Si <paramref name="textoFijo"/> es
         /// nulo se usa el nombre de partición de la categoría del anfitrión
         /// (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS). Devuelve el número de cambios.
@@ -558,7 +601,6 @@ namespace ExportacionMetrados.Core.Metrado
         public static int AsignarParticion(Document doc, IEnumerable<Element> refuerzo, IList<CategoriaMetrado> categorias,
             bool sobrescribir, string textoFijo, List<string> advertencias)
         {
-            var mapa = categorias.ToDictionary(c => new ElementId(c.Categoria), c => c.NombreParticion);
             int n = 0;
 
             foreach (Element r in refuerzo)
@@ -575,7 +617,8 @@ namespace ExportacionMetrados.Core.Metrado
                     if (string.IsNullOrWhiteSpace(valor))
                     {
                         Element host = doc.GetElement(AnfitrionDe(r));
-                        if (host?.Category == null || !mapa.TryGetValue(host.Category.Id, out valor)) continue;
+                        valor = host?.Category == null ? null : CategoriaMetrado.DeCategoria(categorias, host.Category.Id)?.NombreParticion;
+                        if (valor == null) continue;
                     }
 
                     if (!string.Equals(actual, valor, StringComparison.Ordinal))

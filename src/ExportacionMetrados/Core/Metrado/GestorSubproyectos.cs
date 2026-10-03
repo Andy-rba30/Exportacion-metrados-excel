@@ -38,7 +38,7 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 try
                 {
-                    foreach (ElementId id in new FilteredElementCollector(doc).OfCategory(cat.Categoria).WhereElementIsNotElementType().ToElementIds())
+                    foreach (ElementId id in cat.Elementos(doc).ToElementIds())
                     {
                         AgregarDe(doc, id, ids);
                     }
