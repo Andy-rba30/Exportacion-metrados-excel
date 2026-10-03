@@ -129,19 +129,26 @@ función aparte para tablas que ya existen en el proyecto.)
 |---|---|---|
 | `Metrado concreto - Vigas` / `Losas` / `Cimentaciones` | Elemento (familia y tipo), Material, Cantidad, Longitud o Área, Espesor, Volumen. Solo elementos con material de concreto. | Por tipo; total general. **Sin niveles** (una viga puede cruzar varios, las losas se metran por tipo en todo el edificio y las cimentaciones comparten el nivel de fundación). |
 | `Metrado concreto - Columnas` / `Muros` | Nivel, Elemento, Material, Cantidad, Longitud o Área, Espesor, Volumen | Por nivel (encabezado y pie con totales), luego tipo; total general |
-| `Metrado acero estructural - <elemento>` | Elementos cuyo material **no** es concreto (perfiles metálicos): Elemento, Material, Cantidad, Longitud, Área de sección, **Peso (kg)**. Los perfiles no se metran por volumen sino por peso. Solo se crea si existen. | Igual |
-| `Metrado acero - <elemento>` | Refuerzo con partición `VIGAS`, `COLUMNAS`, etc.: Partición, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario, Peso (kg) | Por partición (encabezado y pie con totales), luego tipo de barra; total general |
-| `Metrado acero - General` | Todo el refuerzo del modelo, mismas columnas | Por partición, luego tipo de barra; total general |
+| `Metrado acero estructural - <elemento>` | Elementos cuyo material **no** es concreto (perfiles metálicos): Elemento, Material, Cantidad, Longitud, Área de sección, **Peso (kg)**. Los perfiles no se metran por volumen sino por peso. Solo se crea si existen. En `Conexiones` (categoría opcional: planchas, pernos, coberturas metálicas): Elemento, Material, Cantidad, Volumen, Peso (kg) = volumen × densidad. | Igual |
+| `Metrado acero - <elemento>` | Refuerzo cuyo anfitrión es de ese tipo: filtra por el parámetro **"Metrado - Elemento"** (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`), que el plugin escribe en cada armadura según su anfitrión real; la partición puede tener cualquier texto. Columnas: Partición, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario, Peso (kg) | Por partición (encabezado y pie con totales), luego tipo de barra; total general |
+| `Metrado acero - General` | Todo el refuerzo del modelo: Elemento (tipo de anfitrión), Partición y las mismas columnas | Por elemento (encabezado y pie con totales), luego partición, luego tipo de barra; total general |
 
 - Las tablas no están desglosadas por elemento (una fila por tipo). Si quiere ver cada elemento, active
   "Desglosar cada ejemplar" en la tabla.
+- **Conexiones (opcional, sin marcar por defecto)**: la categoría *Conexiones estructurales* recibe, al
+  importar un IFC, las planchas, pernos, espárragos y a veces las coberturas metálicas (por ejemplo las
+  chapas curvas de un techo parabólico). Márquela en "Elementos a metrar": sus piezas entran en
+  `Metrado acero estructural - Conexiones`, en el filtro de vista amarillo y en el Excel, pesadas por
+  `volumen × densidad` (no tienen longitud ni sección). No se crea tabla de concreto para ellas y, sin otro
+  dato, se clasifican como `ACERO ESTRUCTURAL`.
 - **Separación concreto / metálico**: el plugin crea el parámetro de proyecto **"Metrado - Material"**
-  (texto, de ejemplar) en vigas, columnas, losas, cimentaciones y muros, y lo rellena con `CONCRETO`,
+  (texto, de ejemplar) en vigas, columnas, losas, cimentaciones, muros y conexiones, y lo rellena con `CONCRETO`,
   `ACERO ESTRUCTURAL`, `MADERA` u `OTRO`. Para clasificar usa, en este orden: el "Material para
   comportamiento del modelo" de la familia; los materiales asignados al elemento o a su tipo; el nombre de
   la familia o tipo (perfiles HSS, W, C, L, IPE... y, en vigas y columnas, piezas de conexión: espárragos,
   anclajes, pernos, planchas); y el material por defecto de la categoría. Sin ningún dato útil, losas,
-  muros y cimentaciones se asumen de concreto; vigas y columnas quedan como `OTRO`. Los materiales
+  muros y cimentaciones se asumen de concreto, las conexiones de acero, y vigas y columnas quedan como
+  `OTRO`. Los materiales
   genéricos que crea la importación de IFC ("Material IFC (155-155-155)") y los "Por defecto" no cuentan
   como dato: un perfil importado se reconoce por su nombre (`W12X26`, `HSS2-1-2X2-1-2X3-16`, `L3X3X3-8`,
   `ESPARRAGO 5-8`, `ANCLAJE_Ø7-8`...). Las tablas de concreto filtran `= CONCRETO` y las de acero
@@ -155,8 +162,8 @@ función aparte para tablas que ya existen en el proyecto.)
 - **Filtros de vista para verificar** (opción "Crear filtros de vista por colores"): el plugin crea en el
   proyecto filtros de Visibilidad/Gráficos, uno por tipo de elemento, y los aplica a la vista activa con
   color de línea y relleno sólido: `Metrado - Concreto - Vigas / Columnas / Losas / Cimentaciones / Muros`
-  (regla: categoría y `Metrado - Material = CONCRETO`), `Metrado - Acero estructural - Vigas / Columnas`
-  (`= ACERO ESTRUCTURAL`) y `Metrado - Refuerzo - VIGAS / COLUMNAS / CIMIENTOS / LOSAS / MUROS` (armaduras y
+  (regla: categoría y `Metrado - Material = CONCRETO`), `Metrado - Acero estructural - Vigas / Columnas /
+  Conexiones` (`= ACERO ESTRUCTURAL`) y `Metrado - Refuerzo - VIGAS / COLUMNAS / CIMIENTOS / LOSAS / MUROS` (armaduras y
   mallas por el parámetro **"Metrado - Elemento"**, que el plugin escribe en cada refuerzo con el tipo de su
   anfitrión real; así los filtros no dependen de cómo tenga numeradas las particiones). Cada familia usa
   colores distintos (azules/rojos/verdes el concreto, celeste y magenta los perfiles, naranjas y turquesas
@@ -174,10 +181,13 @@ función aparte para tablas que ya existen en el proyecto.)
   Los subproyectos quedan reservados hasta sincronizar con central. Se puede desactivar en la ventana.
 - **Partición del acero**: antes de crear las tablas, el plugin escribe en la partición vacía de cada
   armadura el nombre de la categoría de su anfitrión (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`).
-  Las tablas de acero por elemento filtran por ese texto. Las particiones que ya tienen texto se respetan
-  salvo que marque "Sobrescribir".
+  Las particiones que ya tienen texto se respetan salvo que marque "Sobrescribir". Las tablas de acero por
+  elemento **no** filtran por la partición sino por **"Metrado - Elemento"** (tipo de anfitrión real, escrito
+  siempre), así que funcionan aunque las particiones lleven textos propios como `Muro de contención` o
+  `Bloque A`; la partición se muestra como columna y solo sirve de respaldo del filtro si el parámetro no
+  se pudo crear.
 - **Peso del acero**: Revit no permite crear valores calculados desde la API, así que el plugin crea el
-  parámetro de proyecto **"Metrado - Peso (kg)"** en las armaduras, vigas y columnas y lo rellena en cada
+  parámetro de proyecto **"Metrado - Peso (kg)"** en las armaduras, vigas, columnas y conexiones y lo rellena en cada
   ejecución. En las armaduras vale `Longitud total × peso por metro` (el peso por metro sale del parámetro
   del tipo de barra, por defecto `Bar Mass per Unit Length`, o de π·d²/4 × densidad si no existe). Las
   tablas muestran esa columna con totales. Si modifica armaduras después, vuelva a ejecutar el metrado
@@ -190,8 +200,10 @@ función aparte para tablas que ya existen en el proyecto.)
   (perfiles con sección estructural: W, HSS, IPE, C, L...), de la definición de sección estructural de la
   familia o de un parámetro de área con nombre habitual; como último recurso se usa `Volumen / longitud`.
   La densidad es la del **acero al carbono**, material de los perfiles estructurales: 7850 kg/m³ por
-  defecto, ajustable en la ventana. El resultado se escribe en
-  "Metrado - Peso (kg)" de cada perfil y la tabla `Metrado acero estructural - <elemento>` lo suma.
+  defecto, ajustable en la ventana. Las piezas sin longitud ni sección (conexiones, planchas, coberturas
+  metálicas, o un perfil que no exponga su longitud) se pesan por `Volumen × densidad`, con el volumen del
+  parámetro o, si la categoría no lo expone, el de sus sólidos. El resultado se escribe en
+  "Metrado - Peso (kg)" de cada pieza y la tabla `Metrado acero estructural - <elemento>` lo suma.
 - Si ya existe una tabla con el mismo nombre se reutiliza tal cual, salvo que tenga una estructura de una
   versión anterior (agrupada por nivel cuando ya no toca, o sin el filtro por "Metrado - Material"): esa
   se crea de nuevo y se avisa en el resumen. La opción "Regenerar" borra y crea de nuevo todas (se pierden

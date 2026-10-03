@@ -47,8 +47,9 @@ namespace ExportacionMetrados.Core.Metrado
         };
         private static readonly Dictionary<string, Color> ColoresAceroEstructural = new Dictionary<string, Color>
         {
-            { "Vigas",    new Color(0, 190, 240) },        // celeste
-            { "Columnas", new Color(255, 0, 255) },        // magenta
+            { "Vigas",      new Color(0, 190, 240) },      // celeste
+            { "Columnas",   new Color(255, 0, 255) },      // magenta
+            { "Conexiones", new Color(255, 230, 0) },      // amarillo
         };
         private static readonly Dictionary<string, Color> ColoresRefuerzo = new Dictionary<string, Color>
         {
@@ -84,8 +85,11 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 foreach (CategoriaMetrado cat in categorias)
                 {
-                    Agregar(filtros, Crear(PrefijoConcreto + cat.Nombre, new[] { cat.Categoria }, idMaterial, ClasificadorElementos.ValorConcreto),
-                        ColorDe(ColoresConcreto, cat.Nombre));
+                    if (!cat.SoloMetalica)
+                    {
+                        Agregar(filtros, Crear(PrefijoConcreto + cat.Nombre, new[] { cat.Categoria }, idMaterial, ClasificadorElementos.ValorConcreto),
+                            ColorDe(ColoresConcreto, cat.Nombre));
+                    }
 
                     if (cat.PuedeSerMetalica)
                     {
@@ -108,6 +112,7 @@ namespace ExportacionMetrados.Core.Metrado
                 }
                 foreach (CategoriaMetrado cat in categorias)
                 {
+                    if (cat.SoloMetalica) continue;   // las conexiones no alojan refuerzo
                     Agregar(filtros, Crear(PrefijoRefuerzo + cat.NombreParticion, ClasificadorElementos.CategoriasRefuerzo, idRefuerzo, cat.NombreParticion),
                         ColorDe(ColoresRefuerzo, cat.NombreParticion));
                 }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Autodesk.Revit.DB;
 
 namespace ExportacionMetrados.Core.Metrado
@@ -8,12 +9,14 @@ namespace ExportacionMetrados.Core.Metrado
     /// </summary>
     public class CategoriaMetrado
     {
-        public CategoriaMetrado(BuiltInCategory categoria, string nombre, string nombreParticion, bool seleccionada)
+        public CategoriaMetrado(BuiltInCategory categoria, string nombre, string nombreParticion, bool seleccionada,
+            string descripcion = null)
         {
             Categoria = categoria;
             Nombre = nombre;
             NombreParticion = nombreParticion;
             Seleccionada = seleccionada;
+            Descripcion = descripcion;
         }
 
         public BuiltInCategory Categoria { get; }
@@ -21,10 +24,26 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>Texto que se escribe en la partición del acero alojado en esta categoría.</summary>
         public string NombreParticion { get; }
         public bool Seleccionada { get; set; }
+        /// <summary>Explicación para la ventana (qué entra en la categoría y cómo se metra).</summary>
+        public string Descripcion { get; }
 
-        /// <summary>True si la categoría admite elementos metálicos (perfiles).</summary>
+        /// <summary>True si la categoría admite elementos metálicos (perfiles, conexiones).</summary>
         public bool PuedeSerMetalica =>
-            Categoria == BuiltInCategory.OST_StructuralFraming || Categoria == BuiltInCategory.OST_StructuralColumns;
+            Categoria == BuiltInCategory.OST_StructuralFraming || Categoria == BuiltInCategory.OST_StructuralColumns ||
+            SoloMetalica;
+
+        /// <summary>
+        /// True en las conexiones estructurales (planchas, pernos, coberturas metálicas
+        /// importadas de IFC): no se crea tabla de concreto y, sin otro dato, sus
+        /// elementos se asumen de acero.
+        /// </summary>
+        public bool SoloMetalica => Categoria == BuiltInCategory.OST_StructConnections;
+
+        /// <summary>
+        /// True si el peso se calcula como volumen × densidad (piezas sin longitud ni
+        /// sección: planchas, conexiones, coberturas) en lugar de longitud × sección × densidad.
+        /// </summary>
+        public bool PesoPorVolumen => SoloMetalica;
 
         /// <summary>
         /// False en vigas, losas y cimentaciones: su metrado no se agrupa por nivel (una
@@ -35,16 +54,35 @@ namespace ExportacionMetrados.Core.Metrado
         public bool AgruparPorNivel =>
             Categoria != BuiltInCategory.OST_StructuralFraming &&
             Categoria != BuiltInCategory.OST_StructuralFoundation &&
-            Categoria != BuiltInCategory.OST_Floors;
+            Categoria != BuiltInCategory.OST_Floors &&
+            !SoloMetalica;
 
         public static List<CategoriaMetrado> Predeterminadas() => new List<CategoriaMetrado>
         {
-            new CategoriaMetrado(BuiltInCategory.OST_StructuralFraming,    "Vigas",         "VIGAS",     true),
-            new CategoriaMetrado(BuiltInCategory.OST_StructuralColumns,    "Columnas",      "COLUMNAS",  true),
-            new CategoriaMetrado(BuiltInCategory.OST_StructuralFoundation, "Cimentaciones", "CIMIENTOS", true),
-            new CategoriaMetrado(BuiltInCategory.OST_Floors,               "Losas",         "LOSAS",     true),
-            new CategoriaMetrado(BuiltInCategory.OST_Walls,                "Muros",         "MUROS",     false),
+            new CategoriaMetrado(BuiltInCategory.OST_StructuralFraming,    "Vigas",         "VIGAS",     true,
+                "Armazón estructural: vigas y arriostres de concreto (volumen) o metálicos (peso)."),
+            new CategoriaMetrado(BuiltInCategory.OST_StructuralColumns,    "Columnas",      "COLUMNAS",  true,
+                "Pilares estructurales de concreto (volumen) o metálicos (peso)."),
+            new CategoriaMetrado(BuiltInCategory.OST_StructuralFoundation, "Cimentaciones", "CIMIENTOS", true,
+                "Zapatas, vigas de cimentación, plateas y muros de contención de la categoría Cimentación estructural."),
+            new CategoriaMetrado(BuiltInCategory.OST_Floors,               "Losas",         "LOSAS",     true,
+                "Suelos estructurales: losas, solados."),
+            new CategoriaMetrado(BuiltInCategory.OST_Walls,                "Muros",         "MUROS",     false,
+                "Muros (placas) de concreto."),
+            new CategoriaMetrado(BuiltInCategory.OST_StructConnections,    "Conexiones",    "CONEXIONES", false,
+                "Conexiones estructurales: planchas, pernos y coberturas metálicas (por ejemplo importadas de IFC). " +
+                "Sin longitud ni sección, se metran por peso = volumen × densidad del acero."),
         };
+
+        private static readonly List<CategoriaMetrado> Catalogo = Predeterminadas();
+
+        /// <summary>Entrada del catálogo que corresponde a la categoría del elemento, o null si no se metra.</summary>
+        public static CategoriaMetrado De(Element e)
+        {
+            ElementId id = e?.Category?.Id;
+            if (id == null) return null;
+            return Catalogo.FirstOrDefault(c => id == new ElementId(c.Categoria));
+        }
     }
 
     public class OpcionesMetrado

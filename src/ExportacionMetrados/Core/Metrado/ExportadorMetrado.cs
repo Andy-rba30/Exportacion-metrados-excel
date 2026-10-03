@@ -147,9 +147,8 @@ namespace ExportacionMetrados.Core.Metrado
             // Perfiles metálicos: por peso, no por volumen.
             if (r.AceroEstructural.Count > 0)
             {
-                Subtitulo(hoja, fila++, 5, "Acero estructural (perfiles metálicos)");
-                hoja.Cell(fila++, 1).Value =
-                    $"Peso = longitud × área de sección × densidad del acero al carbono ({_opciones.DensidadAceroEstructural:0} kg/m³).";
+                Subtitulo(hoja, fila++, 5, "Acero estructural (perfiles y piezas metálicas)");
+                hoja.Cell(fila++, 1).Value = NotaPesoAceroEstructural();
                 Encabezado(hoja, fila++, "Elemento", "Longitud (m)", "Peso (kg)", "N° elementos", "");
                 int p = fila;
                 var ordenPerfiles = r.AceroEstructural
@@ -306,13 +305,16 @@ namespace ExportacionMetrados.Core.Metrado
         private void EscribirAceroEstructural(IXLWorksheet hoja, ResultadoMetrado r, List<string> categorias)
         {
             int fila = 1;
-            const int nCol = 9;
-            Titulo(hoja, fila++, nCol, "METRADO DE ACERO ESTRUCTURAL (PERFILES METÁLICOS)");
-            hoja.Cell(fila++, 1).Value =
-                $"Peso = longitud × área de sección × densidad del acero al carbono ({_opciones.DensidadAceroEstructural:0} kg/m³).";
+            const int nCol = 10;
+            Titulo(hoja, fila++, nCol, "METRADO DE ACERO ESTRUCTURAL (PERFILES Y PIEZAS METÁLICAS)");
+            hoja.Cell(fila++, 1).Value = NotaPesoAceroEstructural();
             fila++;
 
-            string[] columnas = { "Elemento", "Nivel", "Tipo", "Material", "Cantidad", "Longitud (m)", "Área de sección (cm²)", "Densidad (kg/m³)", "Peso (kg)" };
+            string[] columnas =
+            {
+                "Elemento", "Nivel", "Tipo", "Material", "Cantidad", "Longitud (m)", "Área de sección (cm²)", "Volumen (m³)",
+                "Densidad (kg/m³)", "Peso (kg)",
+            };
             var filasSubtotal = new List<int>();
 
             var ordenCategorias = r.AceroEstructural.Select(a => a.Categoria).Distinct()
@@ -348,8 +350,9 @@ namespace ExportacionMetrados.Core.Metrado
                         Numero(hoja.Cell(fila, 6), tipo.Sum(e => e.LongitudM), FormatoM);
                         // El área de sección es propia del tipo, no se suma: se muestra la del grupo.
                         Numero(hoja.Cell(fila, 7), tipo.Max(e => e.AreaSeccionCm2), FormatoM);
-                        Numero(hoja.Cell(fila, 8), tipo.Max(e => e.DensidadKgM3), FormatoEntero);
-                        Numero(hoja.Cell(fila, 9), tipo.Sum(e => e.PesoKg), FormatoKg);
+                        Numero(hoja.Cell(fila, 8), tipo.Sum(e => e.VolumenM3), FormatoM3);
+                        Numero(hoja.Cell(fila, 9), tipo.Max(e => e.DensidadKgM3), FormatoEntero);
+                        Numero(hoja.Cell(fila, 10), tipo.Sum(e => e.PesoKg), FormatoKg);
                         fila++;
                     }
                 }
@@ -358,10 +361,12 @@ namespace ExportacionMetrados.Core.Metrado
                 hoja.Cell(fila, 1).Value = "Subtotal " + cat;
                 hoja.Cell(fila, 5).FormulaA1 = $"SUM(E{primera}:E{ultima})";
                 hoja.Cell(fila, 6).FormulaA1 = $"SUM(F{primera}:F{ultima})";
-                hoja.Cell(fila, 9).FormulaA1 = $"SUM(I{primera}:I{ultima})";
+                hoja.Cell(fila, 8).FormulaA1 = $"SUM(H{primera}:H{ultima})";
+                hoja.Cell(fila, 10).FormulaA1 = $"SUM(J{primera}:J{ultima})";
                 hoja.Cell(fila, 5).Style.NumberFormat.Format = FormatoEntero;
                 hoja.Cell(fila, 6).Style.NumberFormat.Format = FormatoM;
-                hoja.Cell(fila, 9).Style.NumberFormat.Format = FormatoKg;
+                hoja.Cell(fila, 8).Style.NumberFormat.Format = FormatoM3;
+                hoja.Cell(fila, 10).Style.NumberFormat.Format = FormatoKg;
                 FilaResaltada(hoja, fila, nCol, ColorSubtotal, true);
                 Bordes(hoja.Range(primera - 1, 1, fila, nCol));
                 filasSubtotal.Add(fila);
@@ -372,15 +377,21 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 hoja.Cell(fila, 1).Value = "TOTAL ACERO ESTRUCTURAL";
                 hoja.Cell(fila, 6).FormulaA1 = string.Join("+", filasSubtotal.Select(f => $"F{f}"));
-                hoja.Cell(fila, 9).FormulaA1 = string.Join("+", filasSubtotal.Select(f => $"I{f}"));
+                hoja.Cell(fila, 8).FormulaA1 = string.Join("+", filasSubtotal.Select(f => $"H{f}"));
+                hoja.Cell(fila, 10).FormulaA1 = string.Join("+", filasSubtotal.Select(f => $"J{f}"));
                 hoja.Cell(fila, 6).Style.NumberFormat.Format = FormatoM;
-                hoja.Cell(fila, 9).Style.NumberFormat.Format = FormatoKg;
+                hoja.Cell(fila, 8).Style.NumberFormat.Format = FormatoM3;
+                hoja.Cell(fila, 10).Style.NumberFormat.Format = FormatoKg;
                 FilaResaltada(hoja, fila, nCol, ColorTotal, true);
                 Bordes(hoja.Range(fila, 1, fila, nCol));
             }
 
             AjustarColumnas(hoja, nCol);
         }
+
+        private string NotaPesoAceroEstructural() =>
+            $"Perfiles: peso = longitud × área de sección × densidad del acero al carbono ({_opciones.DensidadAceroEstructural:0} kg/m³). " +
+            "Conexiones, planchas y piezas sin longitud: volumen × densidad.";
 
         // ------------------------------------------------------------------
         // Acero

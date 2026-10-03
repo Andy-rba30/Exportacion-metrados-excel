@@ -103,7 +103,7 @@ namespace ExportacionMetrados.Core.Metrado
                     // Los perfiles metálicos no se metran por volumen sino por peso.
                     if (cat.PuedeSerMetalica && clasificacion == ClasificadorElementos.ValorAceroEstructural)
                     {
-                        ElementoAceroEstructural perfil = MedirPerfilMetalico(e, cat.Nombre, resultado);
+                        ElementoAceroEstructural perfil = MedirPerfilMetalico(e, cat, resultado);
                         if (perfil != null) resultado.AceroEstructural.Add(perfil);
                         continue;
                     }
@@ -179,7 +179,7 @@ namespace ExportacionMetrados.Core.Metrado
                     return null;
                 }
 
-                volumenPies3 = LeerDouble(e, BuiltInParameter.HOST_VOLUME_COMPUTED);
+                volumenPies3 = ObtenerVolumen(e);
                 nombreMaterial = matEstructural?.Name ?? "(sin material)";
             }
 
@@ -342,37 +342,54 @@ namespace ExportacionMetrados.Core.Metrado
         }
 
         /// <summary>
-        /// Mide un perfil metálico: peso = longitud × área de la sección × densidad.
-        /// Devuelve null (con advertencia) si no hay longitud ni área de sección.
+        /// Mide una pieza metálica. Perfiles: peso = longitud × área de la sección × densidad.
+        /// Piezas sin longitud ni sección (conexiones, planchas, coberturas, o un perfil
+        /// que no expone su longitud): peso = volumen × densidad. Devuelve null (con
+        /// advertencia) si no hay con qué pesarla.
         /// </summary>
-        private ElementoAceroEstructural MedirPerfilMetalico(Element e, string nombreCategoria, ResultadoMetrado resultado)
+        private ElementoAceroEstructural MedirPerfilMetalico(Element e, CategoriaMetrado cat, ResultadoMetrado resultado)
         {
+            string nombreCategoria = cat.Nombre;
             var tipo = _doc.GetElement(e.GetTypeId()) as ElementType;
-            double longitudM = AMetros(ObtenerLongitudPerfil(e));
-            if (longitudM <= 0)
-            {
-                resultado.Advertencias.Add($"{nombreCategoria} Id {e.Id}: perfil metálico sin longitud; no se pudo calcular su peso.");
-                return null;
-            }
+            double volumenM3 = AMetrosCubicos(ObtenerVolumen(e));
+            double longitudM = cat.PesoPorVolumen ? 0 : AMetros(ObtenerLongitudPerfil(e));
 
-            double volumenM3 = AMetrosCubicos(LeerDouble(e, BuiltInParameter.HOST_VOLUME_COMPUTED));
-            double areaM2 = ObtenerAreaSeccion(e, tipo, out string fuenteArea);
-            if (areaM2 <= 0 && volumenM3 > 0)
-            {
-                // Último recurso: la sección media que resulta del volumen que informa Revit.
-                areaM2 = volumenM3 / longitudM;
-                fuenteArea = "Volumen / longitud";
-            }
-            if (areaM2 <= 0)
-            {
-                resultado.Advertencias.Add(
-                    $"{nombreCategoria} Id {e.Id}: el tipo \"{tipo?.Name ?? e.Name}\" no tiene área de sección; no se pudo calcular su peso.");
-                return null;
-            }
-
-            // Los perfiles estructurales son de acero al carbono: densidad única (7850 kg/m³ por defecto).
-            Material material = ObtenerMaterialEstructural(e);
+            // Los perfiles y piezas estructurales son de acero al carbono: densidad única (7850 kg/m³ por defecto).
             double densidad = _opciones.DensidadAceroEstructural;
+            double areaM2 = 0;
+            string fuenteArea;
+            double pesoKg;
+
+            if (longitudM > 0)
+            {
+                areaM2 = ObtenerAreaSeccion(e, tipo, out fuenteArea);
+                if (areaM2 <= 0 && volumenM3 > 0)
+                {
+                    // Último recurso: la sección media que resulta del volumen que informa Revit.
+                    areaM2 = volumenM3 / longitudM;
+                    fuenteArea = "Volumen / longitud";
+                }
+                if (areaM2 <= 0)
+                {
+                    resultado.Advertencias.Add(
+                        $"{nombreCategoria} Id {e.Id}: el tipo \"{tipo?.Name ?? e.Name}\" no tiene área de sección; no se pudo calcular su peso.");
+                    return null;
+                }
+                pesoKg = longitudM * areaM2 * densidad;
+            }
+            else if (volumenM3 > 0)
+            {
+                // Sin longitud (conexiones, planchas, coberturas): el volumen de la pieza por la densidad.
+                fuenteArea = "Volumen × densidad";
+                pesoKg = volumenM3 * densidad;
+            }
+            else
+            {
+                resultado.Advertencias.Add($"{nombreCategoria} Id {e.Id}: pieza metálica sin longitud ni volumen; no se pudo calcular su peso.");
+                return null;
+            }
+
+            Material material = ObtenerMaterialEstructural(e);
             Level nivel = ObtenerNivel(e);
 
             return new ElementoAceroEstructural
@@ -389,9 +406,44 @@ namespace ExportacionMetrados.Core.Metrado
                 AreaSeccionCm2 = areaM2 * 10000.0,
                 FuenteArea = fuenteArea,
                 DensidadKgM3 = densidad,
-                PesoKg = longitudM * areaM2 * densidad,
+                PesoKg = pesoKg,
                 VolumenM3 = volumenM3,
             };
+        }
+
+        /// <summary>
+        /// Volumen del elemento en pies³: el parámetro Volumen o, si la categoría no lo
+        /// expone (formas directas importadas de IFC), la suma de sus sólidos.
+        /// </summary>
+        private static double ObtenerVolumen(Element e)
+        {
+            double v = LeerDouble(e, BuiltInParameter.HOST_VOLUME_COMPUTED);
+            if (v > 0) return v;
+            try
+            {
+                GeometryElement geometria = e.get_Geometry(new Options { ComputeReferences = false, DetailLevel = ViewDetailLevel.Fine });
+                if (geometria != null) v = VolumenDe(geometria);
+            }
+            catch (Exception) { }
+            return v;
+        }
+
+        private static double VolumenDe(GeometryElement geometria)
+        {
+            double v = 0;
+            foreach (GeometryObject g in geometria)
+            {
+                if (g is Solid solido)
+                {
+                    if (solido.Volume > 0) v += solido.Volume;
+                }
+                else if (g is GeometryInstance instancia)
+                {
+                    GeometryElement interior = instancia.GetInstanceGeometry();
+                    if (interior != null) v += VolumenDe(interior);
+                }
+            }
+            return v;
         }
 
         /// <summary>

@@ -9,12 +9,13 @@ namespace ExportacionMetrados.Core.Metrado
     /// Crea (o reutiliza) las tablas de planificación de metrado dentro del
     /// proyecto de Revit:
     ///   - "Metrado concreto - {elemento}"          elementos con material de concreto
-    ///   - "Metrado acero estructural - {elemento}" perfiles metálicos por peso (si los hay)
+    ///   - "Metrado acero estructural - {elemento}" perfiles y piezas metálicas por peso (si los hay)
     ///   - "Metrado acero - {elemento}"             refuerzo cuyo anfitrión es de esa categoría
-    ///   - "Metrado acero - General"                todo el refuerzo, por partición y elemento
+    ///   - "Metrado acero - General"                todo el refuerzo, por elemento y partición
     /// Una tabla que ya existe se reutiliza, salvo que se pida regenerarla o que tenga una
-    /// estructura de una versión anterior (agrupada por nivel cuando ya no toca, o sin el
-    /// filtro por "Metrado - Material"): entonces se crea de nuevo y se avisa.
+    /// estructura de una versión anterior (agrupada por nivel cuando ya no toca, sin el
+    /// filtro por "Metrado - Material" o filtrada por partición en vez de por
+    /// "Metrado - Elemento"): entonces se crea de nuevo y se avisa.
     /// Todos los métodos deben llamarse dentro de una transacción abierta.
     /// </summary>
     public class GeneradorTablasRevit
@@ -61,11 +62,15 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 MaterialesCategoria mats = ClasificarMateriales(cat);
 
-                ViewSchedule t = CrearOReutilizar(PrefijoConcreto + cat.Nombre, () => CrearTablaElementos(cat, mats, concreto: true),
-                    existente => MotivoTablaElementosDesactualizada(existente, cat));
-                if (t != null) tablas.Add(t);
+                if (!cat.SoloMetalica)
+                {
+                    ViewSchedule t = CrearOReutilizar(PrefijoConcreto + cat.Nombre, () => CrearTablaElementos(cat, mats, concreto: true),
+                        existente => MotivoTablaElementosDesactualizada(existente, cat));
+                    if (t != null) tablas.Add(t);
+                }
 
-                if (_op.TablasAceroEstructural && cat.PuedeSerMetalica && HayElementosNoConcreto(cat, mats))
+                // Las conexiones (solo metálicas) siempre van a su tabla de acero estructural.
+                if ((_op.TablasAceroEstructural || cat.SoloMetalica) && cat.PuedeSerMetalica && HayElementosNoConcreto(cat, mats))
                 {
                     ViewSchedule m = CrearOReutilizar(PrefijoAceroEstructural + cat.Nombre, () => CrearTablaElementos(cat, mats, concreto: false),
                         existente => MotivoTablaElementosDesactualizada(existente, cat));
@@ -79,9 +84,11 @@ namespace ExportacionMetrados.Core.Metrado
                 foreach (CategoriaMetrado cat in categorias)
                 {
                     if (!_op.TablasAceroPorElemento || !filtroDisponible) break;
+                    if (cat.SoloMetalica) continue;   // las conexiones no alojan refuerzo
 
                     bool filtrada = true;
-                    ViewSchedule t = CrearOReutilizar(PrefijoAcero + cat.Nombre, () => CrearTablaRefuerzo(cat, out filtrada));
+                    ViewSchedule t = CrearOReutilizar(PrefijoAcero + cat.Nombre, () => CrearTablaRefuerzo(cat, out filtrada),
+                        existente => MotivoTablaRefuerzoDesactualizada(existente, cat));
                     if (t == null) continue;
 
                     if (!filtrada && TablasCreadas.Contains(t))
@@ -99,7 +106,8 @@ namespace ExportacionMetrados.Core.Metrado
 
                 if (_op.TablaAceroGeneral || !filtroDisponible)
                 {
-                    ViewSchedule g = CrearOReutilizar(NombreAceroGeneral, () => CrearTablaRefuerzo(null, out _));
+                    ViewSchedule g = CrearOReutilizar(NombreAceroGeneral, () => CrearTablaRefuerzo(null, out _),
+                        existente => MotivoTablaRefuerzoDesactualizada(existente, null));
                     if (g != null) tablas.Add(g);
                 }
             }
@@ -190,25 +198,61 @@ namespace ExportacionMetrados.Core.Metrado
 
             // Sin filtro por "Metrado - Material" aunque el parámetro ya existe en el proyecto
             // (tablas creadas cuando solo se filtraba por el nombre del material).
-            if (ClasificadorElementos.IdParametroMaterial(_doc) != null)
+            ElementId idMaterial = ClasificadorElementos.IdParametroMaterial(_doc);
+            if (idMaterial != null && !TieneFiltroPorParametro(def, idMaterial))
             {
-                bool filtrada = false;
-                int n = def.GetFilterCount();
-                for (int i = 0; i < n; i++)
-                {
-                    ScheduleField f = def.GetField(def.GetFilter(i).FieldId);
-                    string nombreCampo = null;
-                    try { nombreCampo = f?.GetName(); } catch (Exception) { }
-                    if (string.Equals(nombreCampo, ClasificadorElementos.NombreParametroMaterial, StringComparison.OrdinalIgnoreCase))
-                    {
-                        filtrada = true;
-                        break;
-                    }
-                }
-                if (!filtrada) return "sin filtro por \"" + ClasificadorElementos.NombreParametroMaterial + "\"";
+                return "sin filtro por \"" + ClasificadorElementos.NombreParametroMaterial + "\"";
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Motivo por el que una tabla de refuerzo creada por una versión anterior ya no
+        /// corresponde a la estructura actual, o null si sirve. Las tablas por elemento deben
+        /// filtrar por "Metrado - Elemento" (tipo de anfitrión real) y no por la partición,
+        /// que el usuario puede tener con sus propios textos; la general debe mostrarlo.
+        /// </summary>
+        private string MotivoTablaRefuerzoDesactualizada(ViewSchedule tabla, CategoriaMetrado cat)
+        {
+            ElementId idElemento = ClasificadorElementos.IdParametroElementoRefuerzo(_doc);
+            if (idElemento == null) return null;
+            ScheduleDefinition def = tabla.Definition;
+            string campo = ClasificadorElementos.NombreParametroElementoRefuerzo;
+
+            if (cat != null && !TieneFiltroPorParametro(def, idElemento))
+            {
+                return "filtrada por partición y no por \"" + campo + "\"";
+            }
+            if (cat == null && !TieneCampoDeParametro(def, idElemento))
+            {
+                return "sin la columna de elemento (\"" + campo + "\")";
+            }
+            return null;
+        }
+
+        /// <summary>True si algún filtro de la tabla actúa sobre el parámetro (compartido) indicado.</summary>
+        private static bool TieneFiltroPorParametro(ScheduleDefinition def, ElementId idParametro)
+        {
+            int n = def.GetFilterCount();
+            for (int i = 0; i < n; i++)
+            {
+                ScheduleField f = def.GetField(def.GetFilter(i).FieldId);
+                if (f != null && f.ParameterId == idParametro) return true;
+            }
+            return false;
+        }
+
+        /// <summary>True si la tabla tiene un campo del parámetro (compartido) indicado.</summary>
+        private static bool TieneCampoDeParametro(ScheduleDefinition def, ElementId idParametro)
+        {
+            int n = def.GetFieldCount();
+            for (int i = 0; i < n; i++)
+            {
+                ScheduleField f = def.GetField(i);
+                if (f != null && f.ParameterId == idParametro) return true;
+            }
+            return false;
         }
 
         private static void Renombrar(ViewSchedule tabla, string nombre)
@@ -284,11 +328,15 @@ namespace ExportacionMetrados.Core.Metrado
 
             // En los perfiles metálicos la longitud es la de corte (la pieza real, la misma
             // con la que el plugin calcula el peso); si la categoría no la expone (columnas),
-            // la longitud del elemento.
-            ScheduleField longitud = concreto
-                ? Agregar(def, campos, "Longitud", BuiltInParameter.INSTANCE_LENGTH_PARAM, BuiltInParameter.CURVE_ELEM_LENGTH)
-                : Agregar(def, campos, "Longitud", BuiltInParameter.STRUCTURAL_FRAME_CUT_LENGTH,
-                    BuiltInParameter.INSTANCE_LENGTH_PARAM, BuiltInParameter.CURVE_ELEM_LENGTH);
+            // la longitud del elemento. Las piezas pesadas por volumen no tienen longitud.
+            ScheduleField longitud = null;
+            if (!cat.PesoPorVolumen)
+            {
+                longitud = concreto
+                    ? Agregar(def, campos, "Longitud", BuiltInParameter.INSTANCE_LENGTH_PARAM, BuiltInParameter.CURVE_ELEM_LENGTH)
+                    : Agregar(def, campos, "Longitud", BuiltInParameter.STRUCTURAL_FRAME_CUT_LENGTH,
+                        BuiltInParameter.INSTANCE_LENGTH_PARAM, BuiltInParameter.CURVE_ELEM_LENGTH);
+            }
 
             if (concreto)
             {
@@ -299,6 +347,20 @@ namespace ExportacionMetrados.Core.Metrado
                     BuiltInParameter.STRUCTURAL_FOUNDATION_THICKNESS);
                 ScheduleField volumen = Agregar(def, campos, "Volumen", BuiltInParameter.HOST_VOLUME_COMPUTED);
                 Totales(longitud, area, volumen);
+            }
+            else if (cat.PesoPorVolumen)
+            {
+                // Conexiones, planchas y coberturas: sin longitud ni sección; el plugin escribe
+                // en "Metrado - Peso (kg)" el volumen × densidad del acero.
+                ScheduleField volumen = Agregar(def, campos, "Volumen", BuiltInParameter.HOST_VOLUME_COMPUTED);
+                ScheduleField peso = AgregarPorNombre(def, campos, "Peso (kg)",
+                    new string[0], new[] { ClasificadorElementos.NombreParametroPeso });
+                Totales(volumen, peso);
+                if (peso == null)
+                {
+                    Advertencias.Add($"Acero estructural {cat.Nombre}: no se encontró el parámetro \"" +
+                                     ClasificadorElementos.NombreParametroPeso + "\"; la tabla no incluye la columna de peso.");
+                }
             }
             else
             {
@@ -446,10 +508,17 @@ namespace ExportacionMetrados.Core.Metrado
             ScheduleDefinition def = vs.Definition;
             IList<SchedulableField> campos = def.GetSchedulableFields();
 
+            // "Metrado - Elemento": tipo de anfitrión real (VIGAS, COLUMNAS, CIMIENTOS...) que el
+            // plugin escribe en cada refuerzo. Es el filtro de las tablas por elemento y la
+            // primera agrupación de la general: no depende de la partición, que el usuario
+            // puede tener con sus propios textos ("Muro de contención", "Bloque A"...).
+            ScheduleField elemento = AgregarPorNombre(def, campos, "Elemento",
+                new string[0], new[] { ClasificadorElementos.NombreParametroElementoRefuerzo });
+
             ScheduleField particion = Agregar(def, campos, "Partición", BuiltInParameter.NUMBER_PARTITION_PARAM);
 
             // La categoría del anfitrión solo se usa como respaldo del filtro; no se muestra.
-            ScheduleField hostCategoria = AgregarPorNombre(def, campos, "Elemento",
+            ScheduleField hostCategoria = AgregarPorNombre(def, campos, "Categoría de anfitrión",
                 new[] { "REBAR_HOST_CATEGORY", "REBAR_ELEM_HOST_CATEGORY" },
                 new[] { "Host Category", "Categoría de anfitrión", "Categoría del anfitrión", "Categoría de host" });
             if (hostCategoria != null)
@@ -474,7 +543,15 @@ namespace ExportacionMetrados.Core.Metrado
 
             Totales(cantidad, longTotal, peso);
 
-            // Orden: partición (encabezado y pie con totales), luego tipo de barra.
+            // Orden: elemento (solo en la general), partición (encabezado y pie con
+            // totales), luego tipo de barra.
+            if (cat == null && elemento != null)
+            {
+                def.AddSortGroupField(new ScheduleSortGroupField(elemento.FieldId)
+                {
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
+                });
+            }
             if (particion != null)
             {
                 def.AddSortGroupField(new ScheduleSortGroupField(particion.FieldId)
@@ -491,9 +568,21 @@ namespace ExportacionMetrados.Core.Metrado
 
             if (cat != null)
             {
-                // Partición = nombre de la categoría (el plugin la rellena). Es un campo
-                // de texto, así que el filtro es fiable; si falla, por categoría del anfitrión.
-                if (particion != null && _op.RellenarParticiones)
+                // 1) "Metrado - Elemento" = tipo de anfitrión (el plugin lo escribe siempre).
+                if (elemento != null)
+                {
+                    try
+                    {
+                        def.AddFilter(new ScheduleFilter(elemento.FieldId, ScheduleFilterType.Equal, cat.NombreParticion));
+                        filtrada = true;
+                    }
+                    catch (Exception) { }
+                    try { elemento.IsHidden = true; } catch (Exception) { }
+                }
+
+                // 2) Partición = nombre de la categoría (el plugin la rellena si estaba vacía);
+                //    si falla, por categoría del anfitrión.
+                if (!filtrada && particion != null && _op.RellenarParticiones)
                 {
                     try
                     {

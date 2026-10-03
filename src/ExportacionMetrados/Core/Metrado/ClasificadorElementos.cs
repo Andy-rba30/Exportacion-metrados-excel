@@ -104,18 +104,17 @@ namespace ExportacionMetrados.Core.Metrado
 
         /// <summary>
         /// Crea y vincula "Metrado - Peso (kg)" a las armaduras (peso del refuerzo) y a
-        /// vigas y columnas (peso de los perfiles metálicos).
+        /// vigas, columnas y conexiones (peso de los perfiles y piezas metálicas).
         /// </summary>
         public static bool AsegurarParametroPeso(Document doc, List<string> advertencias)
         {
+            var categorias = new List<BuiltInCategory>(CategoriasRefuerzo);
+            categorias.AddRange(CategoriaMetrado.Predeterminadas().Where(c => c.PuedeSerMetalica).Select(c => c.Categoria));
             return AsegurarParametro(doc, NombreParametroPeso, GuidParametroPeso, false,
                 "Peso en kg calculado por el plugin: armaduras = longitud total × kg/m; " +
-                "perfiles metálicos = longitud × área de sección × densidad del acero al carbono.",
-                new[]
-                {
-                    BuiltInCategory.OST_Rebar, BuiltInCategory.OST_FabricReinforcement,
-                    BuiltInCategory.OST_StructuralFraming, BuiltInCategory.OST_StructuralColumns,
-                }, advertencias);
+                "perfiles metálicos = longitud × área de sección × densidad del acero al carbono; " +
+                "conexiones y planchas = volumen × densidad.",
+                categorias, advertencias);
         }
 
         private static bool AsegurarParametro(Document doc, string nombre, Guid guid, bool esTexto, string descripcion,
@@ -280,7 +279,8 @@ namespace ExportacionMetrados.Core.Metrado
         /// tipo de material estructural de la familia; materiales asignados al elemento o a
         /// su tipo; nombre de la familia o del tipo; material por defecto de la categoría.
         /// Sin ningún dato, losas, muros y cimentaciones se asumen de concreto; vigas y
-        /// columnas quedan como OTRO para no colarse en el metrado de concreto.
+        /// columnas quedan como OTRO para no colarse en el metrado de concreto, y las
+        /// conexiones estructurales se asumen de acero.
         /// </summary>
         public static string Clasificar(Document doc, Element e)
         {
@@ -328,7 +328,8 @@ namespace ExportacionMetrados.Core.Metrado
             // 3. Nombre de la familia o del tipo. Los perfiles (W12X26, HSS, L3X3...) y las
             //    piezas de conexión importados de IFC traen materiales genéricos
             //    ("Material IFC (r-g-b)") que no dicen nada, pero el nombre sí.
-            bool categoriaMetalica = EsCategoriaMetalica(e);
+            CategoriaMetrado catMetrado = CategoriaMetrado.De(e);
+            bool categoriaMetalica = catMetrado?.PuedeSerMetalica ?? false;
             string nombre = (NombreFamilia(doc, e) + " " + e.Name).ToLowerInvariant();
             if (ContienePista(nombre, PistasAcero)) return ValorAceroEstructural;
             if (categoriaMetalica && ContienePista(nombre, PistasPiezasMetalicas)) return ValorAceroEstructural;
@@ -349,10 +350,13 @@ namespace ExportacionMetrados.Core.Metrado
 
             // 5. Sin ningún dato útil (sin materiales o solo genéricos): losas, muros y
             //    cimentaciones se asumen de concreto, igual que hace el resumen calculado;
-            //    vigas y columnas, que pueden ser metálicas, quedan como OTRO. Con un
-            //    material real que no es concreto, acero ni madera (acabados...), OTRO.
+            //    las conexiones estructurales, de acero; vigas y columnas, que pueden ser
+            //    de ambos, quedan como OTRO. Con un material real que no es concreto, acero
+            //    ni madera (acabados...), OTRO.
             bool sinInformacion = materiales.Count == 0 || materiales.All(EsMaterialGenerico);
-            return sinInformacion && !categoriaMetalica ? ValorConcreto : ValorOtro;
+            if (!sinInformacion) return ValorOtro;
+            if (catMetrado?.SoloMetalica == true) return ValorAceroEstructural;
+            return categoriaMetalica ? ValorOtro : ValorConcreto;
         }
 
         /// <summary>CONCRETO, ACERO ESTRUCTURAL o MADERA según los materiales; null si ninguno lo indica.</summary>
@@ -362,15 +366,6 @@ namespace ExportacionMetrados.Core.Metrado
             if (materiales.Any(EsMaterialMetalico)) return ValorAceroEstructural;
             if (materiales.Any(EsMaterialMadera)) return ValorMadera;
             return null;
-        }
-
-        /// <summary>True si el elemento es una viga (armazón estructural) o un pilar estructural.</summary>
-        private static bool EsCategoriaMetalica(Element e)
-        {
-            ElementId id = e.Category?.Id;
-            if (id == null) return false;
-            return id == new ElementId(BuiltInCategory.OST_StructuralFraming) ||
-                   id == new ElementId(BuiltInCategory.OST_StructuralColumns);
         }
 
         /// <summary>
