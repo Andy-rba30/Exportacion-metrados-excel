@@ -61,13 +61,15 @@ namespace ExportacionMetrados.Core.Metrado
         };
 
         /// <summary>
-        /// Piezas de conexión metálicas (espárragos, anclajes, pernos, planchas...). Solo
-        /// cuentan en vigas y columnas, las categorías que pueden ser metálicas.
+        /// Piezas de conexión y anclaje (espárragos, anclajes, pernos, planchas, cartelas...).
+        /// Marcan la pieza como acero y la llevan al grupo "Conexiones y anclajes". Solo
+        /// cuentan en las categorías que pueden ser metálicas.
         /// </summary>
-        private static readonly string[] PistasPiezasMetalicas =
+        private static readonly string[] PistasConexion =
         {
             "esparrago", "espárrago", "stud", "anclaje", "anchor", "perno", "bolt", "tuerca", "nut", "arandela", "washer",
             "plate", "plancha", "rigidizador", "atiesador", "stiffener", "cartela", "gusset",
+            "conexion", "conexión", "connection", "soldadura", "weld",
         };
 
         // ------------------------------------------------------------------
@@ -337,7 +339,7 @@ namespace ExportacionMetrados.Core.Metrado
             bool categoriaMetalica = catMetrado?.PuedeSerMetalica ?? false;
             string nombre = (NombreFamilia(doc, e) + " " + e.Name).ToLowerInvariant();
             if (ContienePista(nombre, PistasAcero)) return ValorAceroEstructural;
-            if (categoriaMetalica && ContienePista(nombre, PistasPiezasMetalicas)) return ValorAceroEstructural;
+            if (categoriaMetalica && ContienePista(nombre, PistasConexion)) return ValorAceroEstructural;
             if (nombre.Contains("madera") || nombre.Contains("wood") || nombre.Contains("timber")) return ValorMadera;
             if (nombre.Contains("concreto") || nombre.Contains("hormig") || nombre.Contains("concrete")) return ValorConcreto;
 
@@ -369,6 +371,60 @@ namespace ExportacionMetrados.Core.Metrado
         {
             ElementId id = e.Category?.Id;
             return id != null && categorias.Any(c => id == new ElementId(c));
+        }
+
+        /// <summary>
+        /// Clasificación vigente del elemento: la escrita en "Metrado - Material" o, si
+        /// está vacía, la calculada.
+        /// </summary>
+        public static string ClasificacionActual(Document doc, Element e)
+        {
+            string v = null;
+            try { v = e.LookupParameter(NombreParametroMaterial)?.AsString(); } catch { }
+            return string.IsNullOrWhiteSpace(v) ? Clasificar(doc, e) : v.Trim().ToUpperInvariant();
+        }
+
+        /// <summary>True si el nombre de la familia o del tipo indica una pieza de conexión o anclaje.</summary>
+        public static bool EsPiezaDeConexion(Document doc, Element e)
+        {
+            string nombre = (NombreFamilia(doc, e) + " " + e.Name).ToLowerInvariant();
+            return ContienePista(nombre, PistasConexion);
+        }
+
+        /// <summary>
+        /// Grupo de metrado del elemento: el de su categoría, salvo que sea una pieza de
+        /// conexión o anclaje de acero (por nombre) en una categoría metálica y el grupo
+        /// "Conexiones y anclajes" esté marcado, en cuyo caso va a ese grupo. Null si la
+        /// categoría no se metra.
+        /// </summary>
+        public static CategoriaMetrado GrupoDe(Document doc, Element e, IList<CategoriaMetrado> grupos)
+        {
+            CategoriaMetrado porCategoria = CategoriaMetrado.DeCategoria(grupos, e.Category?.Id);
+            if (porCategoria == null) return null;
+
+            CategoriaMetrado conexiones = grupos.FirstOrDefault(g => g.EsConexiones && g.Seleccionada);
+            if (conexiones == null || conexiones == porCategoria || !porCategoria.PuedeSerMetalica) return porCategoria;
+
+            return EsPiezaDeConexion(doc, e) && ClasificacionActual(doc, e) == ValorAceroEstructural ? conexiones : porCategoria;
+        }
+
+        /// <summary>
+        /// Ejemplares que pertenecen al grupo según <see cref="GrupoDe"/>: los de sus
+        /// categorías menos las piezas de conexión absorbidas por "Conexiones y anclajes",
+        /// que a su vez recoge las de todas las categorías metálicas.
+        /// </summary>
+        public static List<Element> ElementosDelGrupo(Document doc, CategoriaMetrado cat, IList<CategoriaMetrado> grupos)
+        {
+            IEnumerable<BuiltInCategory> categorias = cat.EsConexiones
+                ? grupos.Where(g => g.PuedeSerMetalica).SelectMany(g => g.Categorias).Distinct()
+                : cat.Categorias;
+
+            var lista = new List<Element>();
+            foreach (Element e in CategoriaMetrado.Colector(doc, categorias).ToElements())
+            {
+                if (GrupoDe(doc, e, grupos) == cat) lista.Add(e);
+            }
+            return lista;
         }
 
         /// <summary>CONCRETO, ACERO ESTRUCTURAL o MADERA según los materiales; null si ninguno lo indica.</summary>
@@ -567,27 +623,27 @@ namespace ExportacionMetrados.Core.Metrado
         /// "Metrado acero estructural - Otros", que reúne varias categorías de Revit.
         /// Devuelve el número de elementos actualizados.
         /// </summary>
-        public static int RellenarElementoEnElementos(Document doc, IEnumerable<CategoriaMetrado> categorias, List<string> advertencias)
+        public static int RellenarElementoEnElementos(Document doc, IEnumerable<BuiltInCategory> categorias,
+            IList<CategoriaMetrado> grupos, List<string> advertencias)
         {
             int n = 0;
-            foreach (CategoriaMetrado cat in categorias)
+            foreach (Element e in CategoriaMetrado.Colector(doc, categorias).ToElements())
             {
-                foreach (Element e in cat.Elementos(doc).ToElements())
+                try
                 {
-                    try
+                    string valor = GrupoDe(doc, e, grupos)?.NombreParticion;
+                    if (valor == null) continue;
+                    Parameter p = e.LookupParameter(NombreParametroElementoRefuerzo);
+                    if (p == null || p.IsReadOnly || p.StorageType != StorageType.String) continue;
+                    if (!string.Equals(p.AsString() ?? string.Empty, valor, StringComparison.Ordinal))
                     {
-                        Parameter p = e.LookupParameter(NombreParametroElementoRefuerzo);
-                        if (p == null || p.IsReadOnly || p.StorageType != StorageType.String) continue;
-                        if (!string.Equals(p.AsString() ?? string.Empty, cat.NombreParticion, StringComparison.Ordinal))
-                        {
-                            p.Set(cat.NombreParticion);
-                            n++;
-                        }
+                        p.Set(valor);
+                        n++;
                     }
-                    catch (Exception ex)
-                    {
-                        advertencias.Add($"No se pudo escribir \"{NombreParametroElementoRefuerzo}\" en el elemento {e.Id}: {ex.Message}");
-                    }
+                }
+                catch (Exception ex)
+                {
+                    advertencias.Add($"No se pudo escribir \"{NombreParametroElementoRefuerzo}\" en el elemento {e.Id}: {ex.Message}");
                 }
             }
             return n;

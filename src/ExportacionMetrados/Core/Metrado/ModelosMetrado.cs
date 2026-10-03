@@ -4,29 +4,47 @@ using Autodesk.Revit.DB;
 
 namespace ExportacionMetrados.Core.Metrado
 {
+    /// <summary>Clase de grupo de metrado.</summary>
+    public enum TipoGrupo
+    {
+        /// <summary>Una categoría de Revit: vigas, columnas, cimentaciones, losas, muros.</summary>
+        Categoria,
+        /// <summary>
+        /// Conexiones y anclajes: pernos, anclajes, espárragos, planchas, cartelas y
+        /// rigidizadores. Se reconocen por el nombre en cualquier categoría metálica
+        /// (en un IFC suelen venir en Vigas o Columnas) además de por su categoría.
+        /// </summary>
+        Conexiones,
+        /// <summary>Otros: varias categorías de Revit que no son viga, columna, cimentación, losa ni muro.</summary>
+        Otros,
+    }
+
     /// <summary>
     /// Grupo de elementos que el metrado automático procesa: una categoría de Revit
-    /// (vigas, columnas, cimentaciones, losas, muros) o varias ("Otros": conexiones
-    /// estructurales, rigidizadores, modelos genéricos y cubiertas).
+    /// (vigas, columnas, cimentaciones, losas, muros), "Conexiones y anclajes" (por
+    /// nombre y categoría) u "Otros" (conexiones estructurales, modelos genéricos y
+    /// cubiertas).
     /// </summary>
     public class CategoriaMetrado
     {
         public CategoriaMetrado(BuiltInCategory categoria, string nombre, string nombreParticion, bool seleccionada,
             string descripcion = null)
-            : this(new[] { categoria }, nombre, nombreParticion, seleccionada, descripcion, otros: false)
+            : this(new[] { categoria }, nombre, nombreParticion, seleccionada, descripcion, TipoGrupo.Categoria)
         {
         }
 
         public CategoriaMetrado(IList<BuiltInCategory> categorias, string nombre, string nombreParticion, bool seleccionada,
-            string descripcion, bool otros)
+            string descripcion, TipoGrupo tipo)
         {
             Categorias = new List<BuiltInCategory>(categorias);
             Nombre = nombre;
             NombreParticion = nombreParticion;
             Seleccionada = seleccionada;
             Descripcion = descripcion;
-            EsOtros = otros;
+            Tipo = tipo;
         }
+
+        public TipoGrupo Tipo { get; }
 
         /// <summary>Categorías de Revit que forman el grupo (una sola salvo en "Otros").</summary>
         public IReadOnlyList<BuiltInCategory> Categorias { get; }
@@ -44,40 +62,55 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>Explicación para la ventana (qué entra en el grupo y cómo se metra).</summary>
         public string Descripcion { get; }
 
-        /// <summary>
-        /// True en "Otros": lo que no es viga, columna, cimentación, losa ni muro
-        /// (conexiones, planchas, coberturas metálicas, modelos genéricos, cubiertas).
-        /// </summary>
-        public bool EsOtros { get; }
+        /// <summary>True en "Otros": lo que no es viga, columna, cimentación, losa ni muro.</summary>
+        public bool EsOtros => Tipo == TipoGrupo.Otros;
+
+        /// <summary>True en "Conexiones y anclajes": pernos, anclajes, planchas, rigidizadores.</summary>
+        public bool EsConexiones => Tipo == TipoGrupo.Conexiones;
 
         /// <summary>True si el grupo admite elementos metálicos (perfiles, conexiones, planchas).</summary>
         public bool PuedeSerMetalica =>
-            Categoria == BuiltInCategory.OST_StructuralFraming || Categoria == BuiltInCategory.OST_StructuralColumns || EsOtros;
+            Tipo != TipoGrupo.Categoria ||
+            Categoria == BuiltInCategory.OST_StructuralFraming || Categoria == BuiltInCategory.OST_StructuralColumns;
 
         /// <summary>
         /// True si el peso se calcula como volumen × densidad (piezas sin longitud ni
-        /// sección: planchas, conexiones, coberturas) en lugar de longitud × sección × densidad.
+        /// sección: pernos, planchas, conexiones, coberturas) en lugar de longitud × sección × densidad.
         /// </summary>
-        public bool PesoPorVolumen => EsOtros;
+        public bool PesoPorVolumen => Tipo != TipoGrupo.Categoria;
 
         /// <summary>True si el grupo puede alojar refuerzo (tablas y filtros de acero por elemento).</summary>
-        public bool AlojaRefuerzo => !EsOtros;
+        public bool AlojaRefuerzo => Tipo == TipoGrupo.Categoria;
+
+        /// <summary>
+        /// True si la tabla de acero estructural del grupo es de varias categorías de Revit
+        /// ("Otros" y "Conexiones y anclajes"), filtrada por "Metrado - Elemento".
+        /// </summary>
+        public bool TablaMulticategoria => Tipo != TipoGrupo.Categoria;
 
         /// <summary>
         /// True solo en columnas y muros: su metrado se agrupa por nivel. Vigas (pueden
         /// cruzar varios), losas (se metran por tipo en todo el edificio), cimentaciones
-        /// (comparten el nivel de fundación) y "Otros" van solo por tipo. Vale tanto para
-        /// las tablas de Revit como para el Excel.
+        /// (comparten el nivel de fundación), conexiones y "Otros" van solo por tipo. Vale
+        /// tanto para las tablas de Revit como para el Excel.
         /// </summary>
         public bool AgruparPorNivel =>
-            !EsOtros && (Categoria == BuiltInCategory.OST_StructuralColumns || Categoria == BuiltInCategory.OST_Walls);
+            Tipo == TipoGrupo.Categoria &&
+            (Categoria == BuiltInCategory.OST_StructuralColumns || Categoria == BuiltInCategory.OST_Walls);
 
-        /// <summary>Ejemplares (no tipos) del documento que pertenecen al grupo.</summary>
-        public FilteredElementCollector Elementos(Document doc)
+        /// <summary>
+        /// Ejemplares (no tipos) de las categorías propias del grupo. No aplica la
+        /// asignación por nombre: para eso, <see cref="ClasificadorElementos.ElementosDelGrupo"/>.
+        /// </summary>
+        public FilteredElementCollector Elementos(Document doc) => Colector(doc, Categorias);
+
+        /// <summary>Ejemplares (no tipos) de las categorías indicadas.</summary>
+        public static FilteredElementCollector Colector(Document doc, IEnumerable<BuiltInCategory> categorias)
         {
+            var lista = new List<BuiltInCategory>(categorias);
             var colector = new FilteredElementCollector(doc);
-            if (EsGrupo) colector.WherePasses(new ElementMulticategoryFilter(new List<BuiltInCategory>(Categorias)));
-            else colector.OfCategory(Categoria);
+            if (lista.Count == 1) colector.OfCategory(lista[0]);
+            else colector.WherePasses(new ElementMulticategoryFilter(lista));
             return colector.WhereElementIsNotElementType();
         }
 
@@ -101,17 +134,20 @@ namespace ExportacionMetrados.Core.Metrado
             new CategoriaMetrado(BuiltInCategory.OST_Walls,                "Muros",         "MUROS",     false,
                 "Muros (placas) de concreto."),
             new CategoriaMetrado(
-                new[]
-                {
-                    BuiltInCategory.OST_StructConnections, BuiltInCategory.OST_StructuralStiffener,
-                    BuiltInCategory.OST_GenericModel, BuiltInCategory.OST_Roofs,
-                },
+                new[] { BuiltInCategory.OST_StructuralStiffener },
+                "Conexiones y anclajes", "CONEXIONES", true,
+                "Pernos, anclajes, espárragos, tuercas, arandelas, planchas, cartelas y rigidizadores. Se reconocen por " +
+                "el nombre en cualquier categoría metálica (en un IFC suelen venir como Vigas o Columnas) y se " +
+                "pesan por volumen × densidad en \"Metrado acero estructural - Conexiones y anclajes\".",
+                TipoGrupo.Conexiones),
+            new CategoriaMetrado(
+                new[] { BuiltInCategory.OST_StructConnections, BuiltInCategory.OST_GenericModel, BuiltInCategory.OST_Roofs },
                 "Otros", "OTROS", true,
-                "Lo que no es viga, columna, cimentación, losa ni muro: conexiones estructurales (planchas, pernos, " +
-                "coberturas metálicas importadas de IFC), rigidizadores, modelos genéricos y cubiertas. Las piezas " +
-                "metálicas van a \"Metrado acero estructural - Otros\" pesadas por volumen × densidad; las de concreto, " +
-                "a una tabla de concreto por categoría.",
-                otros: true),
+                "Lo que no es viga, columna, cimentación, losa ni muro: conexiones estructurales (donde un IFC deja, por " +
+                "ejemplo, las coberturas metálicas), modelos genéricos y cubiertas. Las piezas metálicas van a " +
+                "\"Metrado acero estructural - Otros\" pesadas por volumen × densidad; las de concreto, a una tabla de " +
+                "concreto por categoría.",
+                TipoGrupo.Otros),
         };
 
         private static readonly List<CategoriaMetrado> Catalogo = Predeterminadas();

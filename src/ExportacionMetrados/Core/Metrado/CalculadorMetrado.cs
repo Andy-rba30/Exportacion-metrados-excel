@@ -87,7 +87,9 @@ namespace ExportacionMetrados.Core.Metrado
 
         private void CalcularConcreto(CategoriaMetrado cat, ResultadoMetrado resultado)
         {
-            var elementos = cat.Elementos(_doc).ToElements();
+            // Elementos del grupo: los de sus categorías menos las piezas de conexión que
+            // absorbe "Conexiones y anclajes" (o todas ellas, si el grupo es ese).
+            List<Element> elementos = ClasificadorElementos.ElementosDelGrupo(_doc, cat, _opciones.Categorias);
 
             foreach (Element e in elementos)
             {
@@ -107,9 +109,9 @@ namespace ExportacionMetrados.Core.Metrado
 
                     if (_opciones.SoloMaterialConcreto && clasificacion != ClasificadorElementos.ValorConcreto)
                     {
-                        // En "Otros" lo normal es que haya piezas sin clasificar (modelos genéricos
-                        // varios): no se cuentan como omitidas para no alarmar en el resumen.
-                        if (!cat.EsOtros) resultado.ElementosOmitidosPorMaterial++;
+                        // En "Otros" y conexiones lo normal es que haya piezas sin clasificar (modelos
+                        // genéricos varios): no se cuentan como omitidas para no alarmar en el resumen.
+                        if (!cat.TablaMulticategoria) resultado.ElementosOmitidosPorMaterial++;
                         continue;
                     }
 

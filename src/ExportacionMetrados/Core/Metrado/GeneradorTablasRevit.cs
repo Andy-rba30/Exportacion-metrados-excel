@@ -64,7 +64,7 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 MaterialesCategoria mats = ClasificarMateriales(cat);
 
-                if (!cat.EsGrupo)
+                if (!cat.TablaMulticategoria)
                 {
                     ViewSchedule t = CrearOReutilizar(PrefijoConcreto + cat.Nombre,
                         () => CrearTablaElementos(cat, new ElementId(cat.Categoria), mats, concreto: true),
@@ -73,8 +73,8 @@ namespace ExportacionMetrados.Core.Metrado
                 }
                 else
                 {
-                    // "Otros": las tablas de varias categorías no exponen el volumen, así que el
-                    // concreto va en una tabla por cada categoría de Revit que tenga elementos de concreto.
+                    // "Otros" y conexiones: las tablas de varias categorías no exponen el volumen, así que
+                    // el concreto va en una tabla por cada categoría de Revit que tenga elementos de concreto.
                     foreach (BuiltInCategory bic in cat.Categorias)
                     {
                         if (!HayElementos(bic, ClasificadorElementos.ValorConcreto)) continue;
@@ -86,11 +86,11 @@ namespace ExportacionMetrados.Core.Metrado
                     }
                 }
 
-                // "Otros" (piezas sin longitud ni sección) siempre va a su tabla de acero estructural,
-                // de varias categorías, filtrada por "Metrado - Elemento" = OTROS.
-                if ((_op.TablasAceroEstructural || cat.EsOtros) && cat.PuedeSerMetalica && HayElementosNoConcreto(cat, mats))
+                // "Otros" y "Conexiones y anclajes" (piezas sin longitud ni sección) siempre van a su
+                // tabla de acero estructural, de varias categorías, filtrada por "Metrado - Elemento".
+                if ((_op.TablasAceroEstructural || cat.TablaMulticategoria) && cat.PuedeSerMetalica && HayElementosNoConcreto(cat, mats))
                 {
-                    ElementId categoriaTabla = cat.EsGrupo ? ElementId.InvalidElementId : new ElementId(cat.Categoria);
+                    ElementId categoriaTabla = cat.TablaMulticategoria ? ElementId.InvalidElementId : new ElementId(cat.Categoria);
                     ViewSchedule m = CrearOReutilizar(PrefijoAceroEstructural + cat.Nombre,
                         () => CrearTablaElementos(cat, categoriaTabla, mats, concreto: false),
                         existente => MotivoTablaElementosDesactualizada(existente, cat));
@@ -224,11 +224,11 @@ namespace ExportacionMetrados.Core.Metrado
                 return "sin filtro por \"" + ClasificadorElementos.NombreParametroMaterial + "\"";
             }
 
-            // La tabla de varias categorías de "Otros" debe filtrar por "Metrado - Elemento"
-            // para no mezclar los perfiles de vigas y columnas.
+            // Toda tabla de elementos filtra por su grupo en "Metrado - Elemento": así las piezas
+            // de conexión que vienen como vigas no salen en la tabla de vigas, y las tablas de
+            // varias categorías no mezclan los perfiles de vigas y columnas.
             ElementId idElemento = ClasificadorElementos.IdParametroElementoRefuerzo(_doc);
-            if (cat.EsGrupo && def.CategoryId == ElementId.InvalidElementId && idElemento != null &&
-                !TieneFiltroPorParametro(def, idElemento))
+            if (idElemento != null && !TieneFiltroPorParametro(def, idElemento))
             {
                 return "sin filtro por \"" + ClasificadorElementos.NombreParametroElementoRefuerzo + "\"";
             }
@@ -307,7 +307,7 @@ namespace ExportacionMetrados.Core.Metrado
         private MaterialesCategoria ClasificarMateriales(CategoriaMetrado cat)
         {
             var r = new MaterialesCategoria();
-            var elementos = cat.Elementos(_doc).ToElements();
+            List<Element> elementos = ClasificadorElementos.ElementosDelGrupo(_doc, cat, _op.Categorias);
 
             foreach (Element e in elementos)
             {
@@ -461,28 +461,27 @@ namespace ExportacionMetrados.Core.Metrado
             // Respaldo: filtros sobre el material estructural.
             if (!filtrado && material != null) AplicarFiltroMaterial(def, material, mats, concreto, cat.Nombre);
 
-            // Tabla de varias categorías: solo los elementos del grupo ("Metrado - Elemento" = OTROS),
-            // para no mezclar los perfiles de vigas y columnas, que también son acero estructural.
-            if (variasCategorias)
+            // Solo los elementos del grupo ("Metrado - Elemento" = VIGAS, CONEXIONES, OTROS...):
+            // las piezas de conexión que vienen como vigas no salen en la tabla de vigas, y las
+            // tablas de varias categorías no mezclan los perfiles de vigas y columnas.
+            ScheduleField elemento = AgregarPorNombre(def, campos, "Grupo",
+                new string[0], new[] { ClasificadorElementos.NombreParametroElementoRefuerzo });
+            bool porGrupo = false;
+            if (elemento != null)
             {
-                ScheduleField elemento = AgregarPorNombre(def, campos, "Grupo",
-                    new string[0], new[] { ClasificadorElementos.NombreParametroElementoRefuerzo });
-                bool porGrupo = false;
-                if (elemento != null)
+                try
                 {
-                    try
-                    {
-                        def.AddFilter(new ScheduleFilter(elemento.FieldId, ScheduleFilterType.Equal, cat.NombreParticion));
-                        elemento.IsHidden = true;
-                        porGrupo = true;
-                    }
-                    catch (Exception) { }
+                    def.AddFilter(new ScheduleFilter(elemento.FieldId, ScheduleFilterType.Equal, cat.NombreParticion));
+                    elemento.IsHidden = true;
+                    porGrupo = true;
                 }
-                if (!porGrupo)
-                {
-                    Advertencias.Add($"{cat.Nombre}: no se pudo filtrar por \"{ClasificadorElementos.NombreParametroElementoRefuerzo}\"; " +
-                                     "la tabla puede incluir perfiles de vigas y columnas.");
-                }
+                catch (Exception) { }
+            }
+            if (!porGrupo)
+            {
+                Advertencias.Add($"{cat.Nombre}: no se pudo filtrar por \"{ClasificadorElementos.NombreParametroElementoRefuerzo}\"; " +
+                                 (variasCategorias ? "la tabla puede incluir perfiles de vigas y columnas."
+                                                   : "las piezas de conexión de esa categoría saldrán en esta tabla."));
             }
 
             return vs;
@@ -510,13 +509,13 @@ namespace ExportacionMetrados.Core.Metrado
         /// </summary>
         private bool HayElementosNoConcreto(CategoriaMetrado cat, MaterialesCategoria mats)
         {
-            foreach (Element e in cat.Elementos(_doc).ToElements())
+            foreach (Element e in ClasificadorElementos.ElementosDelGrupo(_doc, cat, _op.Categorias))
             {
                 string v = e.LookupParameter(ClasificadorElementos.NombreParametroMaterial)?.AsString();
                 if (string.IsNullOrEmpty(v)) continue;
-                if (cat.EsOtros ? v == ClasificadorElementos.ValorAceroEstructural : v != ClasificadorElementos.ValorConcreto) return true;
+                if (cat.TablaMulticategoria ? v == ClasificadorElementos.ValorAceroEstructural : v != ClasificadorElementos.ValorConcreto) return true;
             }
-            return !cat.EsOtros && mats.NoConcreto.Count > 0;
+            return !cat.TablaMulticategoria && mats.NoConcreto.Count > 0;
         }
 
         /// <summary>

@@ -50,7 +50,8 @@ namespace ExportacionMetrados.Core.Metrado
         {
             { "Vigas",      new Color(0, 190, 240) },      // celeste
             { "Columnas",   new Color(255, 0, 255) },      // magenta
-            { "Otros",      new Color(255, 230, 0) },      // amarillo
+            { "Otros",                 new Color(255, 230, 0) },  // amarillo
+            { "Conexiones y anclajes", new Color(0, 255, 0) },    // verde vivo
         };
         private static readonly Dictionary<string, Color> ColoresRefuerzo = new Dictionary<string, Color>
         {
@@ -84,14 +85,24 @@ namespace ExportacionMetrados.Core.Metrado
             }
             else
             {
+                // Los filtros de acero estructural llevan además la regla "Metrado - Elemento" =
+                // grupo: las piezas de conexión que vienen como vigas se pintan como conexiones.
+                ElementId idGrupo = ClasificadorElementos.IdParametroElementoRefuerzo(_doc);
+                var categoriasMetalicas = categorias.Where(c => c.PuedeSerMetalica).SelectMany(c => c.Categorias).Distinct().ToList();
+
                 foreach (CategoriaMetrado cat in categorias)
                 {
-                    Agregar(filtros, Crear(PrefijoConcreto + cat.Nombre, cat.Categorias, idMaterial, ClasificadorElementos.ValorConcreto),
-                        ColorDe(ColoresConcreto, cat.Nombre));
+                    if (!cat.EsConexiones)
+                    {
+                        Agregar(filtros, Crear(PrefijoConcreto + cat.Nombre, cat.Categorias, idMaterial, ClasificadorElementos.ValorConcreto),
+                            ColorDe(ColoresConcreto, cat.Nombre));
+                    }
 
                     if (cat.PuedeSerMetalica)
                     {
-                        Agregar(filtros, Crear(PrefijoAceroEstructural + cat.Nombre, cat.Categorias, idMaterial, ClasificadorElementos.ValorAceroEstructural),
+                        IEnumerable<BuiltInCategory> cats = cat.EsConexiones ? categoriasMetalicas : cat.Categorias;
+                        Agregar(filtros, Crear(PrefijoAceroEstructural + cat.Nombre, cats, idMaterial, ClasificadorElementos.ValorAceroEstructural,
+                                idGrupo, cat.NombreParticion),
                             ColorDe(ColoresAceroEstructural, cat.Nombre));
                     }
                 }
@@ -136,7 +147,9 @@ namespace ExportacionMetrados.Core.Metrado
         /// regla parámetro = valor sobre las categorías dadas. Devuelve null si el
         /// parámetro no admite filtros en ninguna de ellas o Revit rechaza el filtro.
         /// </summary>
-        private ParameterFilterElement Crear(string nombre, IEnumerable<BuiltInCategory> categorias, ElementId idParametro, string valor)
+        /// <param name="idParametro2">Segunda regla (opcional, se omite si es null): parámetro igual a <paramref name="valor2"/>.</param>
+        private ParameterFilterElement Crear(string nombre, IEnumerable<BuiltInCategory> categorias, ElementId idParametro, string valor,
+            ElementId idParametro2 = null, string valor2 = null)
         {
             var ids = new List<ElementId>();
             foreach (BuiltInCategory bic in categorias)
@@ -156,7 +169,9 @@ namespace ExportacionMetrados.Core.Metrado
 
             try
             {
-                var filtroElementos = new ElementParameterFilter(ReglaIgual(idParametro, valor));
+                var reglas = new List<FilterRule> { ReglaIgual(idParametro, valor) };
+                if (idParametro2 != null && valor2 != null) reglas.Add(ReglaIgual(idParametro2, valor2));
+                var filtroElementos = new ElementParameterFilter(reglas);
 
                 ParameterFilterElement existente = new FilteredElementCollector(_doc)
                     .OfClass(typeof(ParameterFilterElement))

@@ -62,7 +62,12 @@ namespace ExportacionMetrados
 
                     // 1a. Parámetro "Metrado - Material" y clasificación concreto / metálico.
                     var categoriasSeleccionadas = opciones.Categorias.Where(c => c.Seleccionada).ToList();
-                    var categoriasBic = categoriasSeleccionadas.SelectMany(c => c.Categorias).Distinct().ToList();
+                    // "Conexiones y anclajes" recoge por nombre piezas de cualquier categoría metálica:
+                    // si está marcado, esas categorías también se clasifican y reciben el parámetro.
+                    bool conexiones = categoriasSeleccionadas.Any(c => c.EsConexiones);
+                    var categoriasBic = categoriasSeleccionadas
+                        .Concat(conexiones ? opciones.Categorias.Where(c => c.PuedeSerMetalica) : Enumerable.Empty<CategoriaMetrado>())
+                        .SelectMany(c => c.Categorias).Distinct().ToList();
                     if (ClasificadorElementos.AsegurarParametroMaterial(doc, categoriasBic, advertencias))
                     {
                         doc.Regenerate();
@@ -84,7 +89,7 @@ namespace ExportacionMetrados
                         doc.Regenerate();
                         elementosRefuerzo = ClasificadorElementos.RellenarElementoRefuerzo(doc, ClasificadorElementos.TodoElRefuerzo(doc),
                             opciones.Categorias, advertencias);
-                        elementosGrupo = ClasificadorElementos.RellenarElementoEnElementos(doc, categoriasSeleccionadas, advertencias);
+                        elementosGrupo = ClasificadorElementos.RellenarElementoEnElementos(doc, categoriasBic, opciones.Categorias, advertencias);
                     }
 
                     // 1c. Peso en kg: armaduras (longitud total × kg/m) y perfiles metálicos
