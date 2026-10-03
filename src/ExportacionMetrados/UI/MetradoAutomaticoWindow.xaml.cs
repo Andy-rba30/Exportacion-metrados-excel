@@ -19,6 +19,7 @@ namespace ExportacionMetrados.UI
         {
             InitializeComponent();
             LstCategorias.ItemsSource = _opciones.Categorias;
+            TxtContrato.Text = "Contrato ARBA-comun " + ClasificadorElementos.VersionContrato;
 
             string carpeta = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             TxtRuta.Text = Path.Combine(carpeta, nombreSugerido ?? "Metrado.xlsx");

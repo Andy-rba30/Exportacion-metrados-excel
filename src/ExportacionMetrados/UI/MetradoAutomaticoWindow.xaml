@@ -48,10 +48,12 @@
                 <StackPanel>
                     <CheckBox x:Name="ChkAceroEstructural" Content="Separar en tablas aparte los elementos metálicos (acero estructural), metrados por peso" IsChecked="True" />
                     <CheckBox x:Name="ChkConservarMaterial" Content="Conservar la clasificación &quot;Metrado - Material&quot; ya escrita en los elementos" IsChecked="False" />
-                    <CheckBox x:Name="ChkParticiones" Content="Rellenar la partición vacía del acero según el elemento anfitrión (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS)" IsChecked="True" />
-                    <CheckBox x:Name="ChkSobrescribirParticiones" Content="Sobrescribir también las particiones que ya tengan texto" IsChecked="False" Margin="20,3,0,3" />
+                    <CheckBox x:Name="ChkParticiones" IsChecked="True">
+                        <TextBlock TextWrapping="Wrap" Text="Rellenar la partición vacía del acero que no creó un add-in ARBA con la forma del contrato: CATEGORIA - MAN-marca del anfitrión (VIGAS - MAN-V1, CIMIENTOS - MAN-Z3...) y &quot;ARBA - Origen&quot; = MANUAL" />
+                    </CheckBox>
+                    <CheckBox x:Name="ChkSobrescribirParticiones" Content="Sobrescribir también las particiones que ya tengan texto (las de los add-ins ARBA nunca se tocan)" IsChecked="False" Margin="20,3,0,3" />
                     <CheckBox x:Name="ChkAcero" Content="Crear las tablas de acero de refuerzo por elemento" IsChecked="True" />
-                    <CheckBox x:Name="ChkAceroGeneral" Content="Crear además una tabla general de acero de refuerzo (partición → elemento → tipo)" IsChecked="True" />
+                    <CheckBox x:Name="ChkAceroGeneral" Content="Crear además una tabla general de acero de refuerzo (elemento → partición → tipo, con la columna &quot;ARBA - Código&quot;)" IsChecked="True" />
                     <CheckBox x:Name="ChkRegenerar" IsChecked="False">
                         <TextBlock TextWrapping="Wrap" Text="Regenerar todas las tablas que ya existan (se borran y se crean de nuevo; se pierden columnas añadidas a mano y su ubicación en planos). Sin marcar, solo se recrean las que tengan una estructura antigua (agrupadas por nivel cuando ya no toca o sin el filtro por &quot;Metrado - Material&quot;)" />
                     </CheckBox>
@@ -122,10 +124,14 @@
                 </StackPanel>
             </GroupBox>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
-                <Button Content="Cancelar" IsCancel="True" />
-                <Button Content="Generar metrado" IsDefault="True" Click="BtnExportar_Click" FontWeight="Bold" />
-            </StackPanel>
+            <DockPanel Margin="0,4,0,0">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button Content="Cancelar" IsCancel="True" />
+                    <Button Content="Generar metrado" IsDefault="True" Click="BtnExportar_Click" FontWeight="Bold" />
+                </StackPanel>
+                <TextBlock x:Name="TxtContrato" Foreground="Gray" VerticalAlignment="Center"
+                           ToolTip="Versión del contrato ARBA-comun (parámetros compartidos, partición del acero y cinta) con la que se compiló el plugin." />
+            </DockPanel>
         </StackPanel>
     </ScrollViewer>
 </Window>

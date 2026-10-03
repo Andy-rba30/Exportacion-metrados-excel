@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Arba.Comun;
 using Autodesk.Revit.DB;
 
 namespace ExportacionMetrados.Core.Metrado
@@ -10,13 +11,17 @@ namespace ExportacionMetrados.Core.Metrado
     /// metrado, para comprobar a simple vista qué entra en cada tabla:
     ///   - "Metrado - Concreto - {elemento}"           categoría + "Metrado - Material" = CONCRETO
     ///   - "Metrado - Acero estructural - {elemento}"  categoría + "Metrado - Material" = ACERO ESTRUCTURAL
+    ///                                                 (+ "Metrado - Elemento" = grupo)
+    ///   - "Metrado - Acero estructural - Misceláneos" "Metrado - Elemento" = MISCELANEOS (contrato ARBA:
+    ///                                                 elementos con "Metrado - Partida")
     ///   - "Metrado - Refuerzo - {ELEMENTO}"           armaduras y mallas cuyo "Metrado - Elemento"
     ///                                                 (tipo de anfitrión) es ese; si el parámetro
-    ///                                                 no existe, por partición
+    ///                                                 no existe, por partición "empieza por
+    ///                                                 ELEMENTO - " (forma del contrato ARBA)
     /// Los filtros quedan en el proyecto (se pueden usar en cualquier vista desde
     /// Visibilidad/Gráficos) y, si se pasa una vista, se aplican a ella con color de
     /// línea y relleno sólido. Debe llamarse dentro de una transacción abierta, después
-    /// de rellenar "Metrado - Material" y las particiones.
+    /// de rellenar "Metrado - Material", "Metrado - Elemento" y las particiones.
     /// </summary>
     public class GeneradorFiltrosVista
     {
@@ -52,6 +57,7 @@ namespace ExportacionMetrados.Core.Metrado
             { "Columnas",   new Color(255, 0, 255) },      // magenta
             { "Otros",                 new Color(255, 230, 0) },  // amarillo
             { "Conexiones y anclajes", new Color(0, 255, 0) },    // verde vivo
+            { "Misceláneos",           new Color(185, 110, 255) }, // lila
         };
         private static readonly Dictionary<string, Color> ColoresRefuerzo = new Dictionary<string, Color>
         {
@@ -79,19 +85,22 @@ namespace ExportacionMetrados.Core.Metrado
             var filtros = new List<KeyValuePair<ParameterFilterElement, Color>>();
 
             ElementId idMaterial = ClasificadorElementos.IdParametroMaterial(_doc);
+            // "Metrado - Elemento" = grupo: las piezas de conexión que vienen como vigas se pintan
+            // como conexiones y los misceláneos del contrato ARBA tienen su propio filtro.
+            ElementId idGrupo = ClasificadorElementos.IdParametroElementoRefuerzo(_doc);
+
             if (idMaterial == null)
             {
                 Advertencias.Add("No existe el parámetro \"Metrado - Material\"; no se crearon los filtros de concreto ni de acero estructural.");
             }
             else
             {
-                // Los filtros de acero estructural llevan además la regla "Metrado - Elemento" =
-                // grupo: las piezas de conexión que vienen como vigas se pintan como conexiones.
-                ElementId idGrupo = ClasificadorElementos.IdParametroElementoRefuerzo(_doc);
                 var categoriasMetalicas = categorias.Where(c => c.PuedeSerMetalica).SelectMany(c => c.Categorias).Distinct().ToList();
 
                 foreach (CategoriaMetrado cat in categorias)
                 {
+                    if (cat.EsMiscelaneos) continue;
+
                     if (!cat.EsConexiones)
                     {
                         Agregar(filtros, Crear(PrefijoConcreto + cat.Nombre, cat.Categorias, idMaterial, ClasificadorElementos.ValorConcreto),
@@ -108,22 +117,41 @@ namespace ExportacionMetrados.Core.Metrado
                 }
             }
 
+            // Misceláneos (contrato ARBA): solo "Metrado - Elemento" = MISCELANEOS, sea cual sea su material.
+            foreach (CategoriaMetrado cat in categorias.Where(c => c.EsMiscelaneos))
+            {
+                if (idGrupo == null)
+                {
+                    Advertencias.Add("No existe el parámetro \"" + ClasificadorElementos.NombreParametroElementoRefuerzo +
+                                     "\"; no se creó el filtro de misceláneos.");
+                    continue;
+                }
+                Agregar(filtros, Crear(PrefijoAceroEstructural + cat.Nombre, cat.Categorias, idGrupo, cat.NombreParticion),
+                    ColorDe(ColoresAceroEstructural, cat.Nombre));
+            }
+
             if (_op.IncluirAcero)
             {
                 // "Metrado - Elemento" lo escribe el plugin según el anfitrión real de cada
-                // barra; la partición solo se usa si ese parámetro no se pudo crear.
+                // barra; la partición solo se usa si ese parámetro no se pudo crear: entonces
+                // por la forma del contrato ARBA, "empieza por 'ELEMENTO - '" (VIGAS - MAN-V1,
+                // VIGAS - VIG-V1...).
                 ElementId idRefuerzo = ClasificadorElementos.IdParametroElementoRefuerzo(_doc);
-                if (idRefuerzo == null)
+                bool porParticion = idRefuerzo == null;
+                if (porParticion)
                 {
                     idRefuerzo = new ElementId(BuiltInParameter.NUMBER_PARTITION_PARAM);
                     Advertencias.Add("No existe el parámetro \"" + ClasificadorElementos.NombreParametroElementoRefuerzo +
-                                     "\"; los filtros de refuerzo se crearon por partición.");
+                                     "\"; los filtros de refuerzo se crearon por partición (\"empieza por ELEMENTO - \").");
                 }
                 foreach (CategoriaMetrado cat in categorias)
                 {
                     if (!cat.AlojaRefuerzo) continue;
-                    Agregar(filtros, Crear(PrefijoRefuerzo + cat.NombreParticion, ClasificadorElementos.CategoriasRefuerzo, idRefuerzo, cat.NombreParticion),
-                        ColorDe(ColoresRefuerzo, cat.NombreParticion));
+                    ParameterFilterElement filtro = porParticion
+                        ? Crear(PrefijoRefuerzo + cat.NombreParticion, ClasificadorElementos.CategoriasRefuerzo, idRefuerzo,
+                            new List<FilterRule> { ArbaPartition.CategoryRule(cat.NombreParticion) })
+                        : Crear(PrefijoRefuerzo + cat.NombreParticion, ClasificadorElementos.CategoriasRefuerzo, idRefuerzo, cat.NombreParticion);
+                    Agregar(filtros, filtro, ColorDe(ColoresRefuerzo, cat.NombreParticion));
                 }
             }
 
@@ -151,6 +179,18 @@ namespace ExportacionMetrados.Core.Metrado
         private ParameterFilterElement Crear(string nombre, IEnumerable<BuiltInCategory> categorias, ElementId idParametro, string valor,
             ElementId idParametro2 = null, string valor2 = null)
         {
+            var reglas = new List<FilterRule> { ArbaRevit.EqualsRule(idParametro, valor) };
+            if (idParametro2 != null && valor2 != null) reglas.Add(ArbaRevit.EqualsRule(idParametro2, valor2));
+            return Crear(nombre, categorias, idParametro, reglas);
+        }
+
+        /// <summary>
+        /// Crea el filtro "{nombre}" (o actualiza el existente) con las reglas dadas sobre las
+        /// categorías en las que <paramref name="idParametro"/> admite filtros.
+        /// </summary>
+        private ParameterFilterElement Crear(string nombre, IEnumerable<BuiltInCategory> categorias, ElementId idParametro,
+            IList<FilterRule> reglas)
+        {
             var ids = new List<ElementId>();
             foreach (BuiltInCategory bic in categorias)
             {
@@ -169,8 +209,6 @@ namespace ExportacionMetrados.Core.Metrado
 
             try
             {
-                var reglas = new List<FilterRule> { ReglaIgual(idParametro, valor) };
-                if (idParametro2 != null && valor2 != null) reglas.Add(ReglaIgual(idParametro2, valor2));
                 var filtroElementos = new ElementParameterFilter(reglas);
 
                 ParameterFilterElement existente = new FilteredElementCollector(_doc)
@@ -207,15 +245,6 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 return true; // se intenta igualmente; si falla, Create lo informa
             }
-        }
-
-        private static FilterRule ReglaIgual(ElementId idParametro, string valor)
-        {
-#if REVIT2021 || REVIT2022
-            return ParameterFilterRuleFactory.CreateEqualsRule(idParametro, valor, false);
-#else
-            return ParameterFilterRuleFactory.CreateEqualsRule(idParametro, valor);
-#endif
         }
 
         // ------------------------------------------------------------------

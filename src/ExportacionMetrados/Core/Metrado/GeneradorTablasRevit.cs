@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Arba.Comun;
 using Autodesk.Revit.DB;
 
 namespace ExportacionMetrados.Core.Metrado
@@ -12,12 +13,14 @@ namespace ExportacionMetrados.Core.Metrado
     ///                                              una tabla por categoría de Revit con concreto)
     ///   - "Metrado acero estructural - {elemento}" perfiles y piezas metálicas por peso (si los hay;
     ///                                              "Otros": una tabla de varias categorías)
+    ///   - "Metrado acero estructural - Misceláneos" elementos con "Metrado - Partida" (contrato ARBA):
+    ///                                              varias categorías, agrupada por partida, kg y pernos
     ///   - "Metrado acero - {elemento}"             refuerzo cuyo anfitrión es de esa categoría
-    ///   - "Metrado acero - General"                todo el refuerzo, por elemento y partición
+    ///   - "Metrado acero - General"                todo el refuerzo, por elemento y partición, con "ARBA - Código"
     /// Una tabla que ya existe se reutiliza, salvo que se pida regenerarla o que tenga una
     /// estructura de una versión anterior (agrupada por nivel cuando ya no toca, sin el
     /// filtro por "Metrado - Material" o filtrada por partición en vez de por
-    /// "Metrado - Elemento"): entonces se crea de nuevo y se avisa.
+    /// "Metrado - Elemento", sin las columnas del contrato): entonces se crea de nuevo y se avisa.
     /// Todos los métodos deben llamarse dentro de una transacción abierta.
     /// </summary>
     public class GeneradorTablasRevit
@@ -26,6 +29,8 @@ namespace ExportacionMetrados.Core.Metrado
         public const string PrefijoAceroEstructural = "Metrado acero estructural - ";
         public const string PrefijoAcero = "Metrado acero - ";
         public const string NombreAceroGeneral = "Metrado acero - General";
+        /// <summary>Tabla de misceláneos del contrato ARBA (elementos con "Metrado - Partida").</summary>
+        public const string NombreMiscelaneos = PrefijoAceroEstructural + "Misceláneos";
 
         private const int MaxFiltros = 8;
 
@@ -43,6 +48,8 @@ namespace ExportacionMetrados.Core.Metrado
         private readonly Document _doc;
         private readonly OpcionesMetrado _op;
         private readonly ElementId _vistaActivaId;
+        /// <summary>Elementos de cada grupo (según <see cref="ClasificadorElementos.GrupoDe"/>), calculados una sola vez.</summary>
+        private readonly Dictionary<CategoriaMetrado, List<Element>> _elementosPorGrupo = new Dictionary<CategoriaMetrado, List<Element>>();
 
         public List<string> Advertencias { get; } = new List<string>();
         public List<ViewSchedule> TablasCreadas { get; } = new List<ViewSchedule>();
@@ -77,13 +84,26 @@ namespace ExportacionMetrados.Core.Metrado
                     // el concreto va en una tabla por cada categoría de Revit que tenga elementos de concreto.
                     foreach (BuiltInCategory bic in cat.Categorias)
                     {
-                        if (!HayElementos(bic, ClasificadorElementos.ValorConcreto)) continue;
+                        if (!HayElementosDelGrupo(cat, bic, ClasificadorElementos.ValorConcreto)) continue;
                         string nombreCategoria = Category.GetCategory(_doc, bic)?.Name ?? bic.ToString();
                         ViewSchedule t = CrearOReutilizar(PrefijoConcreto + cat.Nombre + " - " + nombreCategoria,
                             () => CrearTablaElementos(cat, new ElementId(bic), mats, concreto: true),
                             existente => MotivoTablaElementosDesactualizada(existente, cat));
                         if (t != null) tablas.Add(t);
                     }
+                }
+
+                if (cat.EsMiscelaneos)
+                {
+                    // Misceláneos (contrato ARBA): tabla de varias categorías agrupada por partida, con kg y pernos.
+                    if (HayMiscelaneos(cat))
+                    {
+                        ViewSchedule m = CrearOReutilizar(PrefijoAceroEstructural + cat.Nombre,
+                            () => CrearTablaMiscelaneos(cat),
+                            existente => MotivoTablaMiscelaneosDesactualizada(existente, cat));
+                        if (m != null) tablas.Add(m);
+                    }
+                    continue;
                 }
 
                 // "Otros" y "Conexiones y anclajes" (piezas sin longitud ni sección) siempre van a su
@@ -257,6 +277,46 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 return "sin la columna de elemento (\"" + campo + "\")";
             }
+            if (cat == null)
+            {
+                // La general muestra "ARBA - Código" (capa / familia del add-in que armó) desde el contrato ARBA.
+                ElementId idCodigo = ClasificadorElementos.IdParametroCodigo(_doc);
+                if (idCodigo != null && !TieneCampoDeParametro(def, idCodigo))
+                {
+                    return "sin la columna \"" + ClasificadorElementos.NombreParametroCodigo + "\"";
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Motivo por el que la tabla de misceláneos ya no corresponde a la estructura actual
+        /// (sin el filtro por "Metrado - Elemento" o sin las columnas del contrato), o null si sirve.
+        /// </summary>
+        private string MotivoTablaMiscelaneosDesactualizada(ViewSchedule tabla, CategoriaMetrado cat)
+        {
+            ScheduleDefinition def = tabla.Definition;
+
+            ElementId idElemento = ClasificadorElementos.IdParametroElementoRefuerzo(_doc);
+            if (idElemento != null && !TieneFiltroPorParametro(def, idElemento))
+            {
+                return "sin filtro por \"" + ClasificadorElementos.NombreParametroElementoRefuerzo + "\"";
+            }
+            ElementId idPartida = ClasificadorElementos.IdParametroPartida(_doc);
+            if (idPartida != null && !TieneCampoDeParametro(def, idPartida))
+            {
+                return "sin la columna \"" + ClasificadorElementos.NombreParametroPartida + "\"";
+            }
+            ElementId idPernos = ClasificadorElementos.IdParametroPernos(_doc);
+            if (idPernos != null && !TieneCampoDeParametro(def, idPernos))
+            {
+                return "sin la columna \"" + ClasificadorElementos.NombreParametroPernos + "\"";
+            }
+            ElementId idPeso = ClasificadorElementos.IdParametroPeso(_doc);
+            if (idPeso != null && !TieneCampoDeParametro(def, idPeso))
+            {
+                return "sin la columna \"" + ClasificadorElementos.NombreParametroPeso + "\"";
+            }
             return null;
         }
 
@@ -304,10 +364,21 @@ namespace ExportacionMetrados.Core.Metrado
             public Dictionary<ElementId, string> Nombres { get; } = new Dictionary<ElementId, string>();
         }
 
+        /// <summary>Elementos del grupo (una sola vez por grupo).</summary>
+        private List<Element> ElementosDe(CategoriaMetrado cat)
+        {
+            if (!_elementosPorGrupo.TryGetValue(cat, out List<Element> lista))
+            {
+                lista = ClasificadorElementos.ElementosDelGrupo(_doc, cat, _op.Categorias);
+                _elementosPorGrupo[cat] = lista;
+            }
+            return lista;
+        }
+
         private MaterialesCategoria ClasificarMateriales(CategoriaMetrado cat)
         {
             var r = new MaterialesCategoria();
-            List<Element> elementos = ClasificadorElementos.ElementosDelGrupo(_doc, cat, _op.Categorias);
+            List<Element> elementos = ElementosDe(cat);
 
             foreach (Element e in elementos)
             {
@@ -384,8 +455,7 @@ namespace ExportacionMetrados.Core.Metrado
                 // Conexiones, planchas y coberturas: sin longitud ni sección; el plugin escribe
                 // en "Metrado - Peso (kg)" el volumen × densidad del acero.
                 ScheduleField volumen = Agregar(def, campos, "Volumen", BuiltInParameter.HOST_VOLUME_COMPUTED);
-                ScheduleField peso = AgregarPorNombre(def, campos, "Peso (kg)",
-                    new string[0], new[] { ClasificadorElementos.NombreParametroPeso });
+                ScheduleField peso = AgregarCompartido(def, campos, "Peso (kg)", ArbaContract.Peso);
                 Totales(volumen, peso);
                 if (peso == null)
                 {
@@ -400,8 +470,7 @@ namespace ExportacionMetrados.Core.Metrado
                 ScheduleField areaSeccion = Agregar(def, campos, "Área de sección", BuiltInParameter.STRUCTURAL_SECTION_AREA)
                     ?? AgregarPorNombre(def, campos, "Área de sección", new string[0],
                         new[] { "Section Area", "Área de sección", "Area de seccion" });
-                ScheduleField peso = AgregarPorNombre(def, campos, "Peso (kg)",
-                    new string[0], new[] { ClasificadorElementos.NombreParametroPeso });
+                ScheduleField peso = AgregarCompartido(def, campos, "Peso (kg)", ArbaContract.Peso);
                 Totales(longitud, peso);
 
                 if (areaSeccion == null)
@@ -439,8 +508,7 @@ namespace ExportacionMetrados.Core.Metrado
             def.GrandTotalTitle = (concreto ? "Total concreto " : "Total acero estructural ") + cat.Nombre;
 
             // Filtro principal: parámetro "Metrado - Material" (rellenado por el plugin).
-            ScheduleField clasificacion = AgregarPorNombre(def, campos, "Clasificación",
-                new string[0], new[] { ClasificadorElementos.NombreParametroMaterial });
+            ScheduleField clasificacion = AgregarCompartido(def, campos, "Clasificación", ArbaContract.Material);
             bool filtrado = false;
             if (clasificacion != null)
             {
@@ -464,8 +532,7 @@ namespace ExportacionMetrados.Core.Metrado
             // Solo los elementos del grupo ("Metrado - Elemento" = VIGAS, CONEXIONES, OTROS...):
             // las piezas de conexión que vienen como vigas no salen en la tabla de vigas, y las
             // tablas de varias categorías no mezclan los perfiles de vigas y columnas.
-            ScheduleField elemento = AgregarPorNombre(def, campos, "Grupo",
-                new string[0], new[] { ClasificadorElementos.NombreParametroElementoRefuerzo });
+            ScheduleField elemento = AgregarCompartido(def, campos, "Grupo", ArbaContract.Elemento);
             bool porGrupo = false;
             if (elemento != null)
             {
@@ -487,14 +554,16 @@ namespace ExportacionMetrados.Core.Metrado
             return vs;
         }
 
-        /// <summary>True si algún ejemplar de la categoría tiene "Metrado - Material" igual al valor.</summary>
-        private bool HayElementos(BuiltInCategory bic, string valor)
+        /// <summary>True si algún elemento del grupo, de esa categoría de Revit, tiene "Metrado - Material" igual al valor.</summary>
+        private bool HayElementosDelGrupo(CategoriaMetrado cat, BuiltInCategory bic, string valor)
         {
+            var idCategoria = new ElementId(bic);
             try
             {
-                foreach (Element e in new FilteredElementCollector(_doc).OfCategory(bic).WhereElementIsNotElementType().ToElements())
+                foreach (Element e in ElementosDe(cat))
                 {
-                    string v = e.LookupParameter(ClasificadorElementos.NombreParametroMaterial)?.AsString();
+                    if (e.Category == null || e.Category.Id != idCategoria) continue;
+                    string v = ArbaSharedParams.GetText(e, ArbaContract.Material);
                     if (string.Equals(v, valor, StringComparison.Ordinal)) return true;
                 }
             }
@@ -509,13 +578,117 @@ namespace ExportacionMetrados.Core.Metrado
         /// </summary>
         private bool HayElementosNoConcreto(CategoriaMetrado cat, MaterialesCategoria mats)
         {
-            foreach (Element e in ClasificadorElementos.ElementosDelGrupo(_doc, cat, _op.Categorias))
+            foreach (Element e in ElementosDe(cat))
             {
-                string v = e.LookupParameter(ClasificadorElementos.NombreParametroMaterial)?.AsString();
+                string v = ArbaSharedParams.GetText(e, ArbaContract.Material);
                 if (string.IsNullOrEmpty(v)) continue;
                 if (cat.TablaMulticategoria ? v == ClasificadorElementos.ValorAceroEstructural : v != ClasificadorElementos.ValorConcreto) return true;
             }
             return !cat.TablaMulticategoria && mats.NoConcreto.Count > 0;
+        }
+
+        /// <summary>
+        /// True si el grupo "Misceláneos" tiene algo que mostrar: algún elemento con "Metrado - Partida"
+        /// que no sea de concreto o cuyo peso ya escribió su add-in ARBA.
+        /// </summary>
+        private bool HayMiscelaneos(CategoriaMetrado cat)
+        {
+            foreach (Element e in ElementosDe(cat))
+            {
+                if (ClasificadorElementos.PesoProtegido(e)) return true;
+                if (ClasificadorElementos.ClasificacionActual(_doc, e) != ClasificadorElementos.ValorConcreto) return true;
+            }
+            return false;
+        }
+
+        // ------------------------------------------------------------------
+        // Tabla de misceláneos (contrato ARBA-comun)
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// "Metrado acero estructural - Misceláneos": tabla de varias categorías con los elementos
+        /// cuyo "Metrado - Elemento" es MISCELANEOS (los que tienen "Metrado - Partida": rejillas,
+        /// ángulos...), agrupada por partida (encabezado y pie con totales), luego categoría de
+        /// Revit y tipo. Columnas: Partida, Categoría, Elemento, ARBA - Código, Cantidad,
+        /// Peso (kg) y Pernos (und) con totales.
+        /// </summary>
+        private ViewSchedule CrearTablaMiscelaneos(CategoriaMetrado cat)
+        {
+            ViewSchedule vs = ViewSchedule.CreateSchedule(_doc, ElementId.InvalidElementId);
+            ScheduleDefinition def = vs.Definition;
+            IList<SchedulableField> campos = def.GetSchedulableFields();
+
+            ScheduleField partida = AgregarCompartido(def, campos, "Partida", ArbaContract.Partida);
+            ScheduleField categoria = Agregar(def, campos, "Categoría", BuiltInParameter.ELEM_CATEGORY_PARAM);
+            ScheduleField tipo = Agregar(def, campos, "Elemento", BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM);
+            ScheduleField codigo = AgregarCompartido(def, campos, "Código", ArbaContract.Codigo);
+
+            try
+            {
+                ScheduleField cantidad = def.AddField(ScheduleFieldType.Count);
+                cantidad.ColumnHeading = "Cantidad";
+            }
+            catch (Exception ex) { Advertencias.Add($"{cat.Nombre}: sin campo Cantidad ({ex.Message})"); }
+
+            ScheduleField peso = AgregarCompartido(def, campos, "Peso (kg)", ArbaContract.Peso);
+            ScheduleField pernos = AgregarCompartido(def, campos, "Pernos (und)", ArbaContract.Pernos);
+            Totales(peso, pernos);
+
+            if (partida != null)
+            {
+                def.AddSortGroupField(new ScheduleSortGroupField(partida.FieldId)
+                {
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
+                });
+            }
+            else
+            {
+                Advertencias.Add($"{cat.Nombre}: no se encontró el parámetro \"{ClasificadorElementos.NombreParametroPartida}\"; " +
+                                 "la tabla no se agrupa por partida.");
+            }
+            if (categoria != null) def.AddSortGroupField(new ScheduleSortGroupField(categoria.FieldId));
+            if (tipo != null) def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
+
+            def.IsItemized = false;
+            def.ShowGrandTotal = true;
+            def.ShowGrandTotalTitle = true;
+            def.ShowGrandTotalCount = true;
+            def.GrandTotalTitle = "Total " + cat.Nombre.ToLowerInvariant();
+
+            // Filtro: "Metrado - Elemento" = MISCELANEOS (lo escribe el plugin en todo elemento con partida).
+            ScheduleField elemento = AgregarCompartido(def, campos, "Grupo", ArbaContract.Elemento);
+            bool filtrada = false;
+            if (elemento != null)
+            {
+                try
+                {
+                    def.AddFilter(new ScheduleFilter(elemento.FieldId, ScheduleFilterType.Equal, cat.NombreParticion));
+                    elemento.IsHidden = true;
+                    filtrada = true;
+                }
+                catch (Exception) { }
+            }
+            if (!filtrada && partida != null)
+            {
+                // Respaldo: cualquier elemento con partida.
+                try
+                {
+                    def.AddFilter(new ScheduleFilter(partida.FieldId, ScheduleFilterType.HasValue));
+                    filtrada = true;
+                }
+                catch (Exception) { }
+            }
+            if (!filtrada)
+            {
+                Advertencias.Add($"{cat.Nombre}: no se pudo filtrar por \"{ClasificadorElementos.NombreParametroElementoRefuerzo}\"; " +
+                                 "la tabla puede incluir elementos de otros grupos.");
+            }
+
+            if (codigo == null) Advertencias.Add($"{cat.Nombre}: no se encontró el parámetro \"{ClasificadorElementos.NombreParametroCodigo}\".");
+            if (peso == null) Advertencias.Add($"{cat.Nombre}: no se encontró el parámetro \"{ClasificadorElementos.NombreParametroPeso}\"; la tabla no incluye la columna de peso.");
+            if (pernos == null) Advertencias.Add($"{cat.Nombre}: no se encontró el parámetro \"{ClasificadorElementos.NombreParametroPernos}\"; la tabla no incluye la columna de pernos.");
+
+            return vs;
         }
 
         /// <summary>
@@ -592,10 +765,13 @@ namespace ExportacionMetrados.Core.Metrado
             // plugin escribe en cada refuerzo. Es el filtro de las tablas por elemento y la
             // primera agrupación de la general: no depende de la partición, que el usuario
             // puede tener con sus propios textos ("Muro de contención", "Bloque A"...).
-            ScheduleField elemento = AgregarPorNombre(def, campos, "Elemento",
-                new string[0], new[] { ClasificadorElementos.NombreParametroElementoRefuerzo });
+            ScheduleField elemento = AgregarCompartido(def, campos, "Elemento", ArbaContract.Elemento);
 
             ScheduleField particion = Agregar(def, campos, "Partición", BuiltInParameter.NUMBER_PARTITION_PARAM);
+
+            // "ARBA - Código" (capa o familia propia del add-in que armó: inferior, estribo, F1...): columna
+            // informativa del contrato ARBA, solo en la tabla general.
+            if (cat == null) AgregarCompartido(def, campos, "Código", ArbaContract.Codigo);
 
             // La categoría del anfitrión solo se usa como respaldo del filtro; no se muestra.
             ScheduleField hostCategoria = AgregarPorNombre(def, campos, "Categoría de anfitrión",
@@ -618,8 +794,7 @@ namespace ExportacionMetrados.Core.Metrado
                 new[] { "REBAR_BAR_MASS_PER_UNIT_LENGTH" }, nombresPeso.ToArray());
 
             // Peso en kg: parámetro que el plugin rellena (longitud total × kg/m).
-            ScheduleField peso = AgregarPorNombre(def, campos, "Peso (kg)",
-                new string[0], new[] { ClasificadorElementos.NombreParametroPeso });
+            ScheduleField peso = AgregarCompartido(def, campos, "Peso (kg)", ArbaContract.Peso);
 
             Totales(cantidad, longTotal, peso);
 
@@ -660,13 +835,15 @@ namespace ExportacionMetrados.Core.Metrado
                     try { elemento.IsHidden = true; } catch (Exception) { }
                 }
 
-                // 2) Partición = nombre de la categoría (el plugin la rellena si estaba vacía);
-                //    si falla, por categoría del anfitrión.
+                // 2) Partición empieza por "CATEGORIA - " (forma del contrato ARBA: "VIGAS - MAN-V1",
+                //    "CIMIENTOS - ZAP-Z1"...; el plugin la rellena si estaba vacía); si falla, por
+                //    categoría del anfitrión.
                 if (!filtrada && particion != null && _op.RellenarParticiones)
                 {
                     try
                     {
-                        def.AddFilter(new ScheduleFilter(particion.FieldId, ScheduleFilterType.Equal, cat.NombreParticion));
+                        def.AddFilter(new ScheduleFilter(particion.FieldId, ScheduleFilterType.BeginsWith,
+                            ArbaPartition.FilterPrefix(cat.NombreParticion)));
                         filtrada = true;
                     }
                     catch (Exception) { }
@@ -755,6 +932,30 @@ namespace ExportacionMetrados.Core.Metrado
                 catch (Exception) { }
             }
             return null;
+        }
+
+        /// <summary>
+        /// Campo de un parámetro compartido del contrato ARBA: se busca por su Id en el proyecto
+        /// (GUID fijo) y, si no aparece así, por su nombre visible.
+        /// </summary>
+        private ScheduleField AgregarCompartido(ScheduleDefinition def, IList<SchedulableField> campos, string encabezado, ArbaParam parametro)
+        {
+            ElementId id = ArbaSharedParams.IdOf(_doc, parametro);
+            if (id != null)
+            {
+                SchedulableField sf = campos.FirstOrDefault(c => c.ParameterId == id);
+                if (sf != null)
+                {
+                    try
+                    {
+                        ScheduleField f = def.AddField(sf);
+                        f.ColumnHeading = encabezado;
+                        return f;
+                    }
+                    catch (Exception) { }
+                }
+            }
+            return AgregarPorNombre(def, campos, encabezado, new string[0], new[] { parametro.Name });
         }
 
         private ScheduleField AgregarPorNombre(ScheduleDefinition def, IList<SchedulableField> campos, string encabezado,

@@ -52,7 +52,8 @@ namespace ExportacionMetrados.Core.Metrado
 
             try
             {
-                ISet<WorksetId> reservados = WorksharingUtils.CheckoutWorksets(doc, pendientes);
+                // La API devuelve ICollection<WorksetId> (ISet en versiones antiguas): ICollection vale para ambas.
+                ICollection<WorksetId> reservados = WorksharingUtils.CheckoutWorksets(doc, pendientes);
                 WorksetTable tabla = doc.GetWorksetTable();
                 foreach (WorksetId id in pendientes.Where(p => !reservados.Contains(p)))
                 {
@@ -78,7 +79,9 @@ namespace ExportacionMetrados.Core.Metrado
 
         private static bool EsPropio(Document doc, WorksetId id)
         {
-            try { return WorksharingUtils.GetCheckoutStatus(doc, id) == CheckoutStatus.OwnedByCurrentUser; }
+            // Workset.IsEditable: el subproyecto lo tiene reservado el usuario actual
+            // (WorksharingUtils.GetCheckoutStatus solo admite ElementId, no WorksetId).
+            try { return doc.GetWorksetTable().GetWorkset(id)?.IsEditable ?? true; }
             catch (Exception) { return true; } // sin información: no se intenta
         }
     }

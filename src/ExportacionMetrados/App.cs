@@ -1,20 +1,20 @@
 using System;
-using System.IO;
 using System.Reflection;
 using System.Windows.Media.Imaging;
+using Arba.Comun;
 using Autodesk.Revit.UI;
 
 namespace ExportacionMetrados
 {
     /// <summary>
-    /// Punto de entrada del plugin. Crea la pestaña "Metrados" en la cinta de
-    /// Revit con el botón para exportar tablas de planificación a Excel.
+    /// Punto de entrada del plugin. Añade al panel "Metrados" de la pestaña común "ARBA"
+    /// (contrato ARBA-comun) los botones de exportar a Excel, metrado automático, asignar
+    /// partición y migrar particiones y origen. La pestaña y sus paneles los crea
+    /// <see cref="ArbaRibbon"/>, el mismo código que usan los add-ins de armado, así todos
+    /// comparten una sola pestaña sin importar cuál cargue primero.
     /// </summary>
     public class App : IExternalApplication
     {
-        private const string NombrePestana = "Metrados";
-        private const string NombrePanel = "Exportar";
-
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -37,24 +37,13 @@ namespace ExportacionMetrados
 
         private static void CrearCinta(UIControlledApplication application)
         {
-            // La pestaña puede existir si otro plugin la creó; en ese caso se reutiliza.
-            try { application.CreateRibbonTab(NombrePestana); }
-            catch (Autodesk.Revit.Exceptions.ArgumentException) { }
-
-            RibbonPanel panel = null;
-            foreach (var p in application.GetRibbonPanels(NombrePestana))
-            {
-                if (p.Name == NombrePanel) { panel = p; break; }
-            }
-            if (panel == null)
-            {
-                panel = application.CreateRibbonPanel(NombrePestana, NombrePanel);
-            }
+            // Pestaña "ARBA" y paneles IA / Acero / Metrados / Encofrado en orden (ocultos hasta tener botones).
+            ArbaRibbon.Ensure(application);
 
             string rutaEnsamblado = Assembly.GetExecutingAssembly().Location;
 
-            var datosBoton = new PushButtonData(
-                "ExportarMetradosExcel",
+            var datosExportar = new PushButtonData(
+                "ARBA_Metrados_Exportar",
                 "Exportar a\nExcel",
                 rutaEnsamblado,
                 typeof(ExportarMetradosCommand).FullName)
@@ -67,34 +56,58 @@ namespace ExportacionMetrados
             };
 
             var datosMetrado = new PushButtonData(
-                "MetradoAutomatico",
+                "ARBA_Metrados_Automatico",
                 "Metrado\nautomático",
                 rutaEnsamblado,
                 typeof(MetradoAutomaticoCommand).FullName)
             {
-                ToolTip = "Crea en el proyecto las tablas de metrado de concreto y acero (vigas, columnas, losas...) y opcionalmente las exporta a Excel.",
+                ToolTip = "Crea en el proyecto las tablas de metrado de concreto y acero (vigas, columnas, losas, misceláneos...) y opcionalmente las exporta a Excel.",
                 LongDescription = "Genera una tabla de planificación de concreto y otra de acero por cada tipo de elemento, agrupadas por nivel " +
-                                  "y partición, con totales. En la misma operación puede exportarlas a Excel junto con un resumen en m³ y kg.",
+                                  "y partición, con totales, más la tabla de misceláneos por partida (rejillas, ángulos). Crea los parámetros " +
+                                  "compartidos del contrato ARBA-comun " + ArbaContract.Version + " si faltan. En la misma operación puede " +
+                                  "exportarlas a Excel junto con un resumen en m³ y kg.",
                 LargeImage = CargarIcono("metrado32.png"),
                 Image = CargarIcono("metrado16.png"),
             };
 
             var datosParticion = new PushButtonData(
-                "AsignarParticion",
+                "ARBA_Metrados_Particion",
                 "Asignar\npartición",
                 rutaEnsamblado,
                 typeof(AsignarParticionCommand).FullName)
             {
-                ToolTip = "Escribe la partición del acero de refuerzo (VIGAS, COLUMNAS, CIMIENTOS, LOSAS...) a la selección, por lotes o a todo el modelo.",
-                LongDescription = "Seleccione elementos anfitriones o armaduras y el plugin rellena su parámetro Partición con el nombre " +
-                                  "de la categoría del anfitrión o con un texto propio. Así las tablas de acero se agrupan correctamente.",
+                ToolTip = "Escribe la partición del acero de refuerzo que no creó ningún add-in ARBA con la forma del contrato " +
+                          "(\"VIGAS - MAN-V1\", \"CIMIENTOS - MAN-Z3\"...) y \"ARBA - Origen\" = MANUAL, a la selección, por lotes o a todo el modelo.",
+                LongDescription = "Seleccione elementos anfitriones o armaduras y el plugin rellena su parámetro Partición con " +
+                                  "\"CATEGORIA - MAN-marca\" según la categoría y la marca del anfitrión, o con un texto propio. " +
+                                  "Las armaduras creadas por los add-ins ARBA (ZAP, CCO, BLQ, VIG, COL, LOS, MCO) no se tocan. " +
+                                  "Así las tablas de acero se agrupan correctamente.",
                 LargeImage = CargarIcono("particion32.png"),
                 Image = CargarIcono("particion16.png"),
             };
 
-            panel.AddItem(datosBoton);
-            panel.AddItem(datosMetrado);
-            panel.AddItem(datosParticion);
+            var datosMigrar = new PushButtonData(
+                "ARBA_Metrados_Migrar",
+                "Migrar\nparticiones y origen",
+                rutaEnsamblado,
+                typeof(MigrarParticionesCommand).FullName)
+            {
+                ToolTip = "Convierte las particiones antiguas de los add-ins ARBA (ZAP-Z1, CC-C1, BLQ-FT-01-F1, LOSA-L1, MC-M1...) a la " +
+                          "forma del contrato \"CATEGORIA - PREFIJO-marca[-codigo]\" y rellena \"ARBA - Origen\", \"ARBA - Código\" y " +
+                          "\"Metrado - Elemento\". Sin selección migra todo el modelo; con selección, los anfitriones elegidos.",
+                LongDescription = "La categoría se toma del anfitrión real: ZAP-Z1 pasa a CIMIENTOS - ZAP-Z1, CC-C1 a MUROS - CCO-C1 " +
+                                  "(o CIMIENTOS - CCO-C1), BLQ-FT-01-F1 a CIMIENTOS - BLQ-FT-01-F1, LOSA-L1 a LOSAS - LOS-L1 y MC-M1 a " +
+                                  "MUROS - MCO-M1. No toca las particiones de solo categoría (VIGAS) ni las desconocidas, no crea ni " +
+                                  "borra barras y crea los parámetros compartidos del contrato ARBA-comun " + ArbaContract.Version +
+                                  " si faltan. Se puede deshacer con Ctrl+Z.",
+                LargeImage = ArbaRibbon.IconMetrados(32),
+                Image = ArbaRibbon.IconMetrados(16),
+            };
+
+            ArbaRibbon.AddMetrados(application, datosExportar);
+            ArbaRibbon.AddMetrados(application, datosMetrado);
+            ArbaRibbon.AddMetrados(application, datosParticion);
+            ArbaRibbon.AddMetrados(application, datosMigrar);
         }
 
         private static BitmapImage CargarIcono(string nombre)

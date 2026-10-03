@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Arba.Comun;
 using Autodesk.Revit.DB;
 
 namespace ExportacionMetrados.Core.Metrado
@@ -17,13 +18,20 @@ namespace ExportacionMetrados.Core.Metrado
         Conexiones,
         /// <summary>Otros: varias categorías de Revit que no son viga, columna, cimentación, losa ni muro.</summary>
         Otros,
+        /// <summary>
+        /// Misceláneos (contrato ARBA-comun): elementos con "Metrado - Partida" (rejillas, ángulos y
+        /// otras piezas que un add-in ARBA o el usuario metran por partida). Salen de Vigas /
+        /// Conexiones / Otros y van a su propia tabla de varias categorías agrupada por partida, con
+        /// kg y pernos; si su add-in ya escribió el peso, se respeta.
+        /// </summary>
+        Miscelaneos,
     }
 
     /// <summary>
     /// Grupo de elementos que el metrado automático procesa: una categoría de Revit
     /// (vigas, columnas, cimentaciones, losas, muros), "Conexiones y anclajes" (por
-    /// nombre y categoría) u "Otros" (conexiones estructurales, modelos genéricos y
-    /// cubiertas).
+    /// nombre y categoría), "Otros" (conexiones estructurales, modelos genéricos y
+    /// cubiertas) o "Misceláneos" (elementos con "Metrado - Partida").
     /// </summary>
     public class CategoriaMetrado
     {
@@ -46,7 +54,7 @@ namespace ExportacionMetrados.Core.Metrado
 
         public TipoGrupo Tipo { get; }
 
-        /// <summary>Categorías de Revit que forman el grupo (una sola salvo en "Otros").</summary>
+        /// <summary>Categorías de Revit que forman el grupo (una sola salvo en "Otros", "Conexiones" y "Misceláneos").</summary>
         public IReadOnlyList<BuiltInCategory> Categorias { get; }
         /// <summary>Primera categoría del grupo: la única en los grupos de una categoría.</summary>
         public BuiltInCategory Categoria => Categorias[0];
@@ -55,7 +63,8 @@ namespace ExportacionMetrados.Core.Metrado
         public string Nombre { get; }
         /// <summary>
         /// Texto que identifica al grupo: se escribe en "Metrado - Elemento" de sus elementos
-        /// y en el refuerzo que alojan (y en la partición vacía de ese refuerzo).
+        /// y en el refuerzo que alojan (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS, CONEXIONES,
+        /// OTROS, MISCELANEOS). Coincide con la CATEGORIA de la partición del contrato ARBA.
         /// </summary>
         public string NombreParticion { get; }
         public bool Seleccionada { get; set; }
@@ -68,14 +77,19 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>True en "Conexiones y anclajes": pernos, anclajes, planchas, rigidizadores.</summary>
         public bool EsConexiones => Tipo == TipoGrupo.Conexiones;
 
-        /// <summary>True si el grupo admite elementos metálicos (perfiles, conexiones, planchas).</summary>
+        /// <summary>True en "Misceláneos": elementos con "Metrado - Partida" (contrato ARBA-comun).</summary>
+        public bool EsMiscelaneos => Tipo == TipoGrupo.Miscelaneos;
+
+        /// <summary>True si el grupo admite elementos metálicos (perfiles, conexiones, planchas, misceláneos).</summary>
         public bool PuedeSerMetalica =>
             Tipo != TipoGrupo.Categoria ||
             Categoria == BuiltInCategory.OST_StructuralFraming || Categoria == BuiltInCategory.OST_StructuralColumns;
 
         /// <summary>
         /// True si el peso se calcula como volumen × densidad (piezas sin longitud ni
-        /// sección: pernos, planchas, conexiones, coberturas) en lugar de longitud × sección × densidad.
+        /// sección: pernos, planchas, conexiones, coberturas, misceláneos) en lugar de
+        /// longitud × sección × densidad. En los misceláneos con peso escrito por su add-in
+        /// ARBA se respeta ese peso.
         /// </summary>
         public bool PesoPorVolumen => Tipo != TipoGrupo.Categoria;
 
@@ -84,15 +98,15 @@ namespace ExportacionMetrados.Core.Metrado
 
         /// <summary>
         /// True si la tabla de acero estructural del grupo es de varias categorías de Revit
-        /// ("Otros" y "Conexiones y anclajes"), filtrada por "Metrado - Elemento".
+        /// ("Otros", "Conexiones y anclajes" y "Misceláneos"), filtrada por "Metrado - Elemento".
         /// </summary>
         public bool TablaMulticategoria => Tipo != TipoGrupo.Categoria;
 
         /// <summary>
         /// True solo en columnas y muros: su metrado se agrupa por nivel. Vigas (pueden
         /// cruzar varios), losas (se metran por tipo en todo el edificio), cimentaciones
-        /// (comparten el nivel de fundación), conexiones y "Otros" van solo por tipo. Vale
-        /// tanto para las tablas de Revit como para el Excel.
+        /// (comparten el nivel de fundación), conexiones, "Otros" y misceláneos van solo por
+        /// tipo. Vale tanto para las tablas de Revit como para el Excel.
         /// </summary>
         public bool AgruparPorNivel =>
             Tipo == TipoGrupo.Categoria &&
@@ -100,7 +114,7 @@ namespace ExportacionMetrados.Core.Metrado
 
         /// <summary>
         /// Ejemplares (no tipos) de las categorías propias del grupo. No aplica la
-        /// asignación por nombre: para eso, <see cref="ClasificadorElementos.ElementosDelGrupo"/>.
+        /// asignación por nombre ni por partida: para eso, <see cref="ClasificadorElementos.ElementosDelGrupo"/>.
         /// </summary>
         public FilteredElementCollector Elementos(Document doc) => Colector(doc, Categorias);
 
@@ -121,34 +135,60 @@ namespace ExportacionMetrados.Core.Metrado
             return Categorias.Any(c => idCategoria == new ElementId(c));
         }
 
+        /// <summary>
+        /// Grupos del metrado, en orden. Los de una categoría van primero: un elemento se asigna
+        /// al primer grupo que contiene su categoría, y los grupos de varias categorías
+        /// ("Misceláneos" comparte categorías con Vigas y Columnas) se resuelven aparte en
+        /// <see cref="ClasificadorElementos.GrupoDe"/>.
+        /// </summary>
         public static List<CategoriaMetrado> Predeterminadas() => new List<CategoriaMetrado>
         {
-            new CategoriaMetrado(BuiltInCategory.OST_StructuralFraming,    "Vigas",         "VIGAS",     true,
+            new CategoriaMetrado(BuiltInCategory.OST_StructuralFraming,    "Vigas",         ArbaContract.CatVigas,     true,
                 "Armazón estructural: vigas y arriostres de concreto (volumen) o metálicos (peso)."),
-            new CategoriaMetrado(BuiltInCategory.OST_StructuralColumns,    "Columnas",      "COLUMNAS",  true,
+            new CategoriaMetrado(BuiltInCategory.OST_StructuralColumns,    "Columnas",      ArbaContract.CatColumnas,  true,
                 "Pilares estructurales de concreto (volumen) o metálicos (peso)."),
-            new CategoriaMetrado(BuiltInCategory.OST_StructuralFoundation, "Cimentaciones", "CIMIENTOS", true,
+            new CategoriaMetrado(BuiltInCategory.OST_StructuralFoundation, "Cimentaciones", ArbaContract.CatCimientos, true,
                 "Zapatas, vigas de cimentación, plateas y muros de contención de la categoría Cimentación estructural."),
-            new CategoriaMetrado(BuiltInCategory.OST_Floors,               "Losas",         "LOSAS",     true,
+            new CategoriaMetrado(BuiltInCategory.OST_Floors,               "Losas",         ArbaContract.CatLosas,     true,
                 "Suelos estructurales: losas, solados."),
-            new CategoriaMetrado(BuiltInCategory.OST_Walls,                "Muros",         "MUROS",     false,
+            new CategoriaMetrado(BuiltInCategory.OST_Walls,                "Muros",         ArbaContract.CatMuros,     false,
                 "Muros (placas) de concreto."),
             new CategoriaMetrado(
                 new[] { BuiltInCategory.OST_StructuralStiffener },
-                "Conexiones y anclajes", "CONEXIONES", true,
+                "Conexiones y anclajes", ArbaContract.ElementoConexiones, true,
                 "Pernos, anclajes, espárragos, tuercas, arandelas, planchas, cartelas y rigidizadores. Se reconocen por " +
                 "el nombre en cualquier categoría metálica (en un IFC suelen venir como Vigas o Columnas) y se " +
                 "pesan por volumen × densidad en \"Metrado acero estructural - Conexiones y anclajes\".",
                 TipoGrupo.Conexiones),
             new CategoriaMetrado(
                 new[] { BuiltInCategory.OST_StructConnections, BuiltInCategory.OST_GenericModel, BuiltInCategory.OST_Roofs },
-                "Otros", "OTROS", true,
+                "Otros", ArbaContract.CatOtros, true,
                 "Lo que no es viga, columna, cimentación, losa ni muro: conexiones estructurales (donde un IFC deja, por " +
                 "ejemplo, las coberturas metálicas), modelos genéricos y cubiertas. Las piezas metálicas van a " +
                 "\"Metrado acero estructural - Otros\" pesadas por volumen × densidad; las de concreto, a una tabla de " +
                 "concreto por categoría.",
                 TipoGrupo.Otros),
+            new CategoriaMetrado(
+                CategoriasDelContrato(ArbaContract.Partida.Categories),
+                "Misceláneos", ArbaContract.ElementoMiscelaneos, true,
+                "Elementos con \"Metrado - Partida\" (contrato ARBA-comun): rejillas, ángulos y otras piezas que un add-in " +
+                "ARBA o el usuario metran por partida, en cualquiera de sus categorías. Salen de Vigas / Conexiones / Otros " +
+                "y van a \"Metrado acero estructural - Misceláneos\", tabla de varias categorías agrupada por partida con " +
+                "kg y pernos. Si su add-in ya escribió \"Metrado - Peso (kg)\", se respeta; si no, volumen × densidad.",
+                TipoGrupo.Miscelaneos),
         };
+
+        /// <summary>Categorías de Revit de un parámetro del contrato ("OST_..."), omitiendo las que no existan en esta versión de la API.</summary>
+        private static List<BuiltInCategory> CategoriasDelContrato(IEnumerable<string> nombresOst)
+        {
+            var lista = new List<BuiltInCategory>();
+            foreach (string n in nombresOst)
+            {
+                BuiltInCategory bic = ArbaRevit.ParseCategory(n);
+                if (bic != BuiltInCategory.INVALID && !lista.Contains(bic)) lista.Add(bic);
+            }
+            return lista;
+        }
 
         private static readonly List<CategoriaMetrado> Catalogo = Predeterminadas();
 
@@ -211,10 +251,13 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>Texto del filtro de material en las tablas de Revit.</summary>
         public string TextoMaterialConcreto { get; set; } = "Concreto";
 
-        /// <summary>Rellenar la partición vacía del refuerzo con el nombre de la categoría del anfitrión.</summary>
+        /// <summary>
+        /// Rellenar la partición vacía del refuerzo que no creó ningún add-in ARBA con la forma
+        /// del contrato: "CATEGORIA - MAN-marca" (p. ej. VIGAS - MAN-V1) y "ARBA - Origen" = MANUAL.
+        /// </summary>
         public bool RellenarParticiones { get; set; } = true;
 
-        /// <summary>Sobrescribir también las particiones que ya tengan texto.</summary>
+        /// <summary>Sobrescribir también las particiones que ya tengan texto (nunca las de los add-ins ARBA).</summary>
         public bool SobrescribirParticiones { get; set; } = false;
 
         /// <summary>Conservar la clasificación de material ya escrita en los elementos.</summary>
@@ -260,9 +303,10 @@ namespace ExportacionMetrados.Core.Metrado
     }
 
     /// <summary>
-    /// Un perfil metálico (viga o columna de acero estructural) ya medido. Los
-    /// perfiles no se metran por volumen sino por peso:
-    /// peso = longitud × área de la sección × densidad.
+    /// Un perfil metálico (viga o columna de acero estructural) o una pieza metálica ya
+    /// medida. Los perfiles no se metran por volumen sino por peso:
+    /// peso = longitud × área de la sección × densidad. Las piezas sin longitud, por
+    /// volumen × densidad; las que un add-in ARBA pesó (rejillas, ángulos), con su peso.
     /// </summary>
     public class ElementoAceroEstructural
     {
@@ -278,14 +322,29 @@ namespace ExportacionMetrados.Core.Metrado
         public double LongitudM { get; set; }
         /// <summary>Área de la sección transversal en cm².</summary>
         public double AreaSeccionCm2 { get; set; }
-        /// <summary>De dónde se obtuvo el área de la sección (parámetro del tipo, sección de la familia, volumen/longitud).</summary>
+        /// <summary>De dónde se obtuvo el área de la sección o el peso (parámetro del tipo, sección de la familia, volumen/longitud, peso escrito por un add-in ARBA).</summary>
         public string FuenteArea { get; set; }
         /// <summary>Densidad del acero al carbono usada, en kg/m³.</summary>
         public double DensidadKgM3 { get; set; }
-        /// <summary>Peso en kg = longitud × área de sección × densidad.</summary>
+        /// <summary>Peso en kg = longitud × área de sección × densidad (o volumen × densidad, o el peso escrito por su add-in).</summary>
         public double PesoKg { get; set; }
         /// <summary>Volumen que informa Revit (m³), solo como referencia.</summary>
         public double VolumenM3 { get; set; }
+
+        // --- Contrato ARBA-comun ---
+
+        /// <summary>"Metrado - Partida" del elemento (misceláneos: ESTRUCTURAS METÁLICAS - REJILLAS...); "" si no tiene.</summary>
+        public string Partida { get; set; } = string.Empty;
+        /// <summary>"Metrado - Pernos (und)" del elemento; 0 si no tiene.</summary>
+        public int Pernos { get; set; }
+        /// <summary>"ARBA - Código" del elemento (REJILLA P1, ANGULO longCore...); "" si no tiene.</summary>
+        public string Codigo { get; set; } = string.Empty;
+        /// <summary>"ARBA - Origen" del elemento (BLOQUES...); "" si no lo creó un add-in ARBA.</summary>
+        public string Origen { get; set; } = string.Empty;
+        /// <summary>True si pertenece al grupo "Misceláneos" (tiene "Metrado - Partida").</summary>
+        public bool EsMiscelaneo { get; set; }
+        /// <summary>True si el peso es el que escribió su add-in ARBA (origen ARBA y peso > 0) y el plugin lo respeta.</summary>
+        public bool PesoProtegido { get; set; }
     }
 
     /// <summary>Un conjunto de barras de refuerzo ya medido.</summary>
@@ -317,10 +376,15 @@ namespace ExportacionMetrados.Core.Metrado
     public class ResultadoMetrado
     {
         public List<ElementoConcreto> Concreto { get; } = new List<ElementoConcreto>();
-        /// <summary>Perfiles metálicos pesados por longitud × área de sección × densidad.</summary>
+        /// <summary>Perfiles metálicos pesados por longitud × área de sección × densidad (y piezas por volumen o con peso de su add-in).</summary>
         public List<ElementoAceroEstructural> AceroEstructural { get; } = new List<ElementoAceroEstructural>();
         public List<BarraAcero> Acero { get; } = new List<BarraAcero>();
         public List<string> Advertencias { get; } = new List<string>();
         public int ElementosOmitidosPorMaterial { get; set; }
+
+        /// <summary>Misceláneos medidos (elementos con "Metrado - Partida").</summary>
+        public int Miscelaneos => AceroEstructural.Count(a => a.EsMiscelaneo);
+        /// <summary>Piezas cuyo peso escrito por su add-in ARBA se respetó en el cálculo.</summary>
+        public int PesosProtegidos => AceroEstructural.Count(a => a.PesoProtegido);
     }
 }

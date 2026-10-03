@@ -175,6 +175,40 @@ namespace ExportacionMetrados.Core.Metrado
                 fila += 2;
             }
 
+            // Misceláneos (contrato ARBA-comun): elementos con "Metrado - Partida", por partida.
+            var miscelaneos = r.AceroEstructural.Where(a => a.EsMiscelaneo).ToList();
+            if (miscelaneos.Count > 0)
+            {
+                Subtitulo(hoja, fila++, 5, "Misceláneos por partida (contrato ARBA-comun " + ClasificadorElementos.VersionContrato + ")");
+                hoja.Cell(fila++, 1).Value = "Elementos con \"Metrado - Partida\" (rejillas, ángulos...). Se respeta el peso escrito por su add-in; " +
+                                             "sin él, volumen × densidad.";
+                Encabezado(hoja, fila++, "Partida", "Peso (kg)", "Pernos (und)", "N° piezas", "Piezas con peso de su add-in");
+                int p = fila;
+                foreach (var g in miscelaneos
+                    .GroupBy(a => string.IsNullOrWhiteSpace(a.Partida) ? "(sin partida)" : a.Partida)
+                    .OrderBy(g => g.Key))
+                {
+                    hoja.Cell(fila, 1).Value = g.Key;
+                    Numero(hoja.Cell(fila, 2), g.Sum(a => a.PesoKg), FormatoKg);
+                    Numero(hoja.Cell(fila, 3), g.Sum(a => a.Pernos), FormatoEntero);
+                    Numero(hoja.Cell(fila, 4), g.Count(), FormatoEntero);
+                    Numero(hoja.Cell(fila, 5), g.Count(a => a.PesoProtegido), FormatoEntero);
+                    fila++;
+                }
+                hoja.Cell(fila, 1).Value = "TOTAL";
+                hoja.Cell(fila, 2).FormulaA1 = $"SUM(B{p}:B{fila - 1})";
+                hoja.Cell(fila, 3).FormulaA1 = $"SUM(C{p}:C{fila - 1})";
+                hoja.Cell(fila, 4).FormulaA1 = $"SUM(D{p}:D{fila - 1})";
+                hoja.Cell(fila, 5).FormulaA1 = $"SUM(E{p}:E{fila - 1})";
+                hoja.Cell(fila, 2).Style.NumberFormat.Format = FormatoKg;
+                hoja.Cell(fila, 3).Style.NumberFormat.Format = FormatoEntero;
+                hoja.Cell(fila, 4).Style.NumberFormat.Format = FormatoEntero;
+                hoja.Cell(fila, 5).Style.NumberFormat.Format = FormatoEntero;
+                FilaResaltada(hoja, fila, 5, ColorTotal, true);
+                Bordes(hoja.Range(p - 1, 1, fila, 5));
+                fila += 2;
+            }
+
             // Resumen de acero por diámetro
             if (_opciones.IncluirAcero && r.Acero.Count > 0)
             {
@@ -514,12 +548,14 @@ namespace ExportacionMetrados.Core.Metrado
 
         private static void EscribirDetalleAceroEstructural(IXLWorksheet hoja, ResultadoMetrado r)
         {
+            const int nCol = 17;
             int fila = 1;
             Encabezado(hoja, fila++, "Id", "Elemento", "Nivel", "Familia", "Tipo", "Marca", "Material", "Longitud (m)",
-                "Área de sección (cm²)", "Origen del área", "Densidad (kg/m³)", "Peso (kg)", "Volumen Revit (m³)");
+                "Área de sección (cm²)", "Origen del área o del peso", "Densidad (kg/m³)", "Peso (kg)", "Volumen Revit (m³)",
+                "Partida", "Código (ARBA)", "Pernos (und)", "Origen (ARBA)");
 
             foreach (var e in r.AceroEstructural
-                .OrderBy(c => c.Categoria).ThenBy(c => c.ElevacionNivel).ThenBy(c => c.Familia).ThenBy(c => c.Tipo))
+                .OrderBy(c => c.Categoria).ThenBy(c => c.Partida).ThenBy(c => c.ElevacionNivel).ThenBy(c => c.Familia).ThenBy(c => c.Tipo))
             {
                 Numero(hoja.Cell(fila, 1), IdNumerico(e.Id), "0");
                 hoja.Cell(fila, 2).Value = e.Categoria;
@@ -534,17 +570,21 @@ namespace ExportacionMetrados.Core.Metrado
                 Numero(hoja.Cell(fila, 11), e.DensidadKgM3, FormatoEntero);
                 Numero(hoja.Cell(fila, 12), e.PesoKg, FormatoKg);
                 if (e.VolumenM3 > 0) Numero(hoja.Cell(fila, 13), e.VolumenM3, FormatoM3);
+                hoja.Cell(fila, 14).SetValue(e.Partida ?? string.Empty);
+                hoja.Cell(fila, 15).SetValue(e.Codigo ?? string.Empty);
+                if (e.Pernos > 0) Numero(hoja.Cell(fila, 16), e.Pernos, FormatoEntero);
+                hoja.Cell(fila, 17).SetValue(e.Origen ?? string.Empty);
                 fila++;
             }
 
             if (fila > 2)
             {
-                var rango = hoja.Range(1, 1, fila - 1, 13);
+                var rango = hoja.Range(1, 1, fila - 1, nCol);
                 rango.SetAutoFilter();
                 Bordes(rango);
             }
             hoja.SheetView.FreezeRows(1);
-            AjustarColumnas(hoja, 13);
+            AjustarColumnas(hoja, nCol);
         }
 
         private static void EscribirDetalleAcero(IXLWorksheet hoja, ResultadoMetrado r)

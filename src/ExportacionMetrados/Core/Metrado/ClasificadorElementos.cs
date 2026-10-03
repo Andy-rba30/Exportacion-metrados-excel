@@ -1,34 +1,45 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Autodesk.Revit.ApplicationServices;
+using Arba.Comun;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 
 namespace ExportacionMetrados.Core.Metrado
 {
     /// <summary>
-    /// Gestiona el parámetro de proyecto "Metrado - Material" que separa los
-    /// elementos de concreto de los metálicos, y rellena la partición del acero
-    /// de refuerzo según la categoría del elemento anfitrión.
+    /// Gestiona los parámetros compartidos del contrato ARBA-comun que usa el metrado
+    /// ("Metrado - Material", "Metrado - Peso (kg)", "Metrado - Elemento"...), clasifica los
+    /// elementos en concreto / metálico, los reparte en grupos de metrado y escribe la partición
+    /// del acero de refuerzo que no creó ningún add-in ARBA ("CATEGORIA - MAN-marca").
+    /// Las definiciones, GUID y categorías de los parámetros los trae el contrato
+    /// (<see cref="ArbaContract"/>); aquí solo se consumen.
     /// Todos los métodos que escriben deben llamarse dentro de una transacción.
     /// </summary>
     public static class ClasificadorElementos
     {
-        public const string NombreParametroMaterial = "Metrado - Material";
-        public const string ValorConcreto = "CONCRETO";
-        public const string ValorAceroEstructural = "ACERO ESTRUCTURAL";
-        public const string ValorMadera = "MADERA";
-        public const string ValorOtro = "OTRO";
+        /// <summary>Versión del contrato ARBA-comun con la que se compiló el plugin.</summary>
+        public const string VersionContrato = ArbaContract.Version;
 
-        public const string NombreParametroPeso = "Metrado - Peso (kg)";
+        // Nombres de los parámetros: alias del contrato (los GUID y categorías viven en ArbaContract).
+        public static readonly string NombreParametroMaterial = ArbaContract.Material.Name;
+        public static readonly string NombreParametroPeso = ArbaContract.Peso.Name;
         /// <summary>
         /// Parámetro de texto con el grupo de metrado: en vigas, columnas, losas... el suyo
-        /// (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS, OTROS); en el refuerzo, el del
-        /// anfitrión. Lo usan las tablas y los filtros de vista: no depende de la
-        /// partición, que el usuario puede tener numerada a su manera.
+        /// (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS, CONEXIONES, OTROS, MISCELANEOS); en el
+        /// refuerzo, el del anfitrión. Lo usan las tablas y los filtros de vista: no depende de
+        /// la partición, que el usuario puede tener numerada a su manera.
         /// </summary>
-        public const string NombreParametroElementoRefuerzo = "Metrado - Elemento";
+        public static readonly string NombreParametroElementoRefuerzo = ArbaContract.Elemento.Name;
+        public static readonly string NombreParametroPartida = ArbaContract.Partida.Name;
+        public static readonly string NombreParametroPernos = ArbaContract.Pernos.Name;
+        public static readonly string NombreParametroCodigo = ArbaContract.Codigo.Name;
+        public static readonly string NombreParametroOrigen = ArbaContract.Origen.Name;
+
+        public const string ValorConcreto = ArbaContract.MaterialConcreto;
+        public const string ValorAceroEstructural = ArbaContract.MaterialAceroEstructural;
+        public const string ValorMadera = ArbaContract.MaterialMadera;
+        public const string ValorOtro = ArbaContract.MaterialOtro;
 
         /// <summary>Categorías de refuerzo a las que se vinculan los parámetros y filtros.</summary>
         public static readonly BuiltInCategory[] CategoriasRefuerzo =
@@ -36,20 +47,27 @@ namespace ExportacionMetrados.Core.Metrado
             BuiltInCategory.OST_Rebar, BuiltInCategory.OST_FabricReinforcement,
         };
 
-        // GUID fijos para que los parámetros compartidos sean los mismos en todos los proyectos.
-        private static readonly Guid GuidParametroMaterial = new Guid("5B7E3C1A-2D4F-4A6B-9C8D-0E1F2A3B4C5D");
-        private static readonly Guid GuidParametroPeso = new Guid("7D2A9F4E-6B1C-4C3D-8E5F-1A2B3C4D5E6F");
-        private static readonly Guid GuidParametroElementoRefuerzo = new Guid("9A4C7E21-3B5D-4F8A-A6C2-2D3E4F5A6B7C");
+        // ------------------------------------------------------------------
+        // Ids de los parámetros compartidos (para reglas de filtro y campos de tabla)
+        // ------------------------------------------------------------------
 
-        /// <summary>
-        /// Id del parámetro compartido "Metrado - Material" en el proyecto (para reglas de
-        /// filtro de vista), o null si aún no se ha creado.
-        /// </summary>
-        public static ElementId IdParametroMaterial(Document doc)
-        {
-            try { return SharedParameterElement.Lookup(doc, GuidParametroMaterial)?.Id; }
-            catch (Exception) { return null; }
-        }
+        /// <summary>Id del parámetro compartido "Metrado - Material" en el proyecto, o null si aún no se ha creado.</summary>
+        public static ElementId IdParametroMaterial(Document doc) => ArbaSharedParams.IdOf(doc, ArbaContract.Material);
+
+        /// <summary>Id del parámetro compartido "Metrado - Elemento" (null si aún no existe).</summary>
+        public static ElementId IdParametroElementoRefuerzo(Document doc) => ArbaSharedParams.IdOf(doc, ArbaContract.Elemento);
+
+        /// <summary>Id del parámetro compartido "Metrado - Peso (kg)" (null si aún no existe).</summary>
+        public static ElementId IdParametroPeso(Document doc) => ArbaSharedParams.IdOf(doc, ArbaContract.Peso);
+
+        /// <summary>Id del parámetro compartido "Metrado - Partida" (null si aún no existe).</summary>
+        public static ElementId IdParametroPartida(Document doc) => ArbaSharedParams.IdOf(doc, ArbaContract.Partida);
+
+        /// <summary>Id del parámetro compartido "Metrado - Pernos (und)" (null si aún no existe).</summary>
+        public static ElementId IdParametroPernos(Document doc) => ArbaSharedParams.IdOf(doc, ArbaContract.Pernos);
+
+        /// <summary>Id del parámetro compartido "ARBA - Código" (null si aún no existe).</summary>
+        public static ElementId IdParametroCodigo(Document doc) => ArbaSharedParams.IdOf(doc, ArbaContract.Codigo);
 
         /// <summary>Perfiles y materiales metálicos reconocibles por el nombre de la familia o del tipo.</summary>
         private static readonly string[] PistasAcero =
@@ -73,186 +91,51 @@ namespace ExportacionMetrados.Core.Metrado
         };
 
         // ------------------------------------------------------------------
-        // Parámetro "Metrado - Material"
+        // Parámetros compartidos del contrato
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// Crea el parámetro de proyecto (si no existe) y lo vincula como parámetro
-        /// de ejemplar a las categorías indicadas. Devuelve false si no fue posible.
+        /// Asegura los ocho parámetros compartidos del contrato ARBA-comun (ARBA - Origen /
+        /// Código / Anfitrión, Metrado - Partida / Material / Peso (kg) / Pernos (und) /
+        /// Elemento): definición con GUID fijo y vínculo de ejemplar a sus categorías, desde un
+        /// archivo temporal (el archivo de parámetros compartidos del usuario no cambia). Si el
+        /// proyecto tenía un parámetro homónimo de proyecto o con otro GUID, lo sustituye
+        /// conservando los valores y lo avisa. Devuelve false si alguno falló (ver advertencias).
         /// </summary>
-        public static bool AsegurarParametroMaterial(Document doc, IEnumerable<BuiltInCategory> categorias, List<string> advertencias)
+        public static bool AsegurarParametrosContrato(Document doc, List<string> advertencias)
         {
-            return AsegurarParametro(doc, NombreParametroMaterial, GuidParametroMaterial, true,
-                "Clasificación automática para el metrado: CONCRETO, ACERO ESTRUCTURAL, MADERA u OTRO.",
-                categorias, advertencias);
+            return ArbaSharedParams.EnsureAll(doc, advertencias);
         }
 
-        /// <summary>
-        /// Crea y vincula "Metrado - Elemento" a las armaduras y mallas (grupo del
-        /// anfitrión) y a las categorías de elementos indicadas (su propio grupo).
-        /// </summary>
-        public static bool AsegurarParametroElemento(Document doc, IEnumerable<BuiltInCategory> categoriasElementos,
-            List<string> advertencias)
+        /// <summary>Asegura "Metrado - Material" (categorías del contrato). Devuelve false si no fue posible.</summary>
+        public static bool AsegurarParametroMaterial(Document doc, List<string> advertencias)
         {
-            var categorias = new List<BuiltInCategory>(CategoriasRefuerzo);
-            categorias.AddRange(categoriasElementos);
-            return AsegurarParametro(doc, NombreParametroElementoRefuerzo, GuidParametroElementoRefuerzo, true,
-                "Grupo de metrado escrito por el plugin: VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS u OTROS " +
-                "(en el refuerzo, el de su elemento anfitrión).",
-                categorias, advertencias);
+            return ArbaSharedParams.Ensure(doc, ArbaContract.Material, advertencias);
         }
 
-        /// <summary>Id del parámetro compartido "Metrado - Elemento" (null si aún no existe).</summary>
-        public static ElementId IdParametroElementoRefuerzo(Document doc)
+        /// <summary>Asegura "Metrado - Elemento" en armaduras, mallas y categorías de anfitrión (del contrato).</summary>
+        public static bool AsegurarParametroElemento(Document doc, List<string> advertencias)
         {
-            try { return SharedParameterElement.Lookup(doc, GuidParametroElementoRefuerzo)?.Id; }
-            catch (Exception) { return null; }
+            return ArbaSharedParams.Ensure(doc, ArbaContract.Elemento, advertencias);
         }
 
-        /// <summary>
-        /// Crea y vincula "Metrado - Peso (kg)" a las armaduras (peso del refuerzo) y a
-        /// vigas, columnas y conexiones (peso de los perfiles y piezas metálicas).
-        /// </summary>
+        /// <summary>Asegura "Metrado - Peso (kg)" en armaduras, mallas, perfiles y piezas metálicas (del contrato).</summary>
         public static bool AsegurarParametroPeso(Document doc, List<string> advertencias)
         {
-            var categorias = new List<BuiltInCategory>(CategoriasRefuerzo);
-            categorias.AddRange(CategoriaMetrado.Predeterminadas().Where(c => c.PuedeSerMetalica).SelectMany(c => c.Categorias));
-            return AsegurarParametro(doc, NombreParametroPeso, GuidParametroPeso, false,
-                "Peso en kg calculado por el plugin: armaduras = longitud total × kg/m; " +
-                "perfiles metálicos = longitud × área de sección × densidad del acero al carbono; " +
-                "conexiones y planchas = volumen × densidad.",
-                categorias, advertencias);
-        }
-
-        private static bool AsegurarParametro(Document doc, string nombre, Guid guid, bool esTexto, string descripcion,
-            IEnumerable<BuiltInCategory> categorias, List<string> advertencias)
-        {
-            Application app = doc.Application;
-            var categoriasSet = app.Create.NewCategorySet();
-            foreach (BuiltInCategory bic in categorias)
-            {
-                Category c = Category.GetCategory(doc, bic);
-                if (c != null && c.AllowsBoundParameters) categoriasSet.Insert(c);
-            }
-            if (categoriasSet.IsEmpty) return false;
-
-            try
-            {
-                // ¿Ya está vinculado?
-                Definition existente = BuscarDefinicionVinculada(doc, nombre);
-                if (existente != null)
-                {
-                    var binding = doc.ParameterBindings.get_Item(existente) as InstanceBinding;
-                    if (binding != null)
-                    {
-                        bool faltan = false;
-                        foreach (Category c in categoriasSet)
-                        {
-                            if (!binding.Categories.Contains(c)) { binding.Categories.Insert(c); faltan = true; }
-                        }
-                        if (faltan) doc.ParameterBindings.ReInsert(existente, binding, GrupoParametro());
-                    }
-                    return true;
-                }
-
-                ExternalDefinition definicion = ObtenerDefinicionCompartida(app, nombre, guid, esTexto, descripcion, advertencias);
-                if (definicion == null) return false;
-
-                InstanceBinding nuevo = app.Create.NewInstanceBinding(categoriasSet);
-                bool ok = doc.ParameterBindings.Insert(definicion, nuevo, GrupoParametro());
-                if (!ok)
-                {
-                    // Puede fallar si existe con otro vínculo: intentar reinsertar.
-                    ok = doc.ParameterBindings.ReInsert(definicion, nuevo, GrupoParametro());
-                }
-                if (!ok) advertencias.Add("No se pudo vincular el parámetro \"" + nombre + "\" a las categorías.");
-                return ok;
-            }
-            catch (Exception ex)
-            {
-                advertencias.Add("No se pudo crear el parámetro \"" + nombre + "\": " + ex.Message);
-                return false;
-            }
-        }
-
-        private static Definition BuscarDefinicionVinculada(Document doc, string nombre)
-        {
-            DefinitionBindingMapIterator it = doc.ParameterBindings.ForwardIterator();
-            it.Reset();
-            while (it.MoveNext())
-            {
-                Definition d = it.Key;
-                if (d != null && string.Equals(d.Name, nombre, StringComparison.OrdinalIgnoreCase))
-                {
-                    return d;
-                }
-            }
-            return null;
+            return ArbaSharedParams.Ensure(doc, ArbaContract.Peso, advertencias);
         }
 
         /// <summary>
-        /// Obtiene la definición compartida desde un archivo temporal propio, sin
-        /// alterar el archivo de parámetros compartidos del usuario.
+        /// Rellena "Metrado - Material" en todos los elementos de las categorías. No toca el
+        /// valor ya escrito por un add-in ARBA (elementos con "ARBA - Origen": rejillas, ángulos),
+        /// que se cuenta en <paramref name="respetadosArba"/>. Devuelve el número de elementos
+        /// actualizados.
         /// </summary>
-        private static ExternalDefinition ObtenerDefinicionCompartida(Application app, string nombre, Guid guid, bool esTexto,
-            string descripcion, List<string> advertencias)
-        {
-            string archivoOriginal = app.SharedParametersFilename;
-            string carpeta = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ExportacionMetrados");
-            System.IO.Directory.CreateDirectory(carpeta);
-            string archivo = System.IO.Path.Combine(carpeta, "ParametrosMetrado.txt");
-            if (!System.IO.File.Exists(archivo)) System.IO.File.WriteAllText(archivo, string.Empty);
-
-            try
-            {
-                app.SharedParametersFilename = archivo;
-                DefinitionFile df = app.OpenSharedParameterFile();
-                if (df == null)
-                {
-                    advertencias.Add("No se pudo abrir el archivo de parámetros compartidos del plugin.");
-                    return null;
-                }
-
-                DefinitionGroup grupo = df.Groups.get_Item("Metrados") ?? df.Groups.Create("Metrados");
-                var def = grupo.Definitions.get_Item(nombre) as ExternalDefinition;
-                if (def != null) return def;
-
-#if REVIT2021
-                var opciones = new ExternalDefinitionCreationOptions(nombre, esTexto ? ParameterType.Text : ParameterType.Number)
-#else
-                var opciones = new ExternalDefinitionCreationOptions(nombre, esTexto ? SpecTypeId.String.Text : SpecTypeId.Number)
-#endif
-                {
-                    GUID = guid,
-                    Description = descripcion ?? string.Empty,
-                    UserModifiable = true,
-                    Visible = true,
-                };
-                return grupo.Definitions.Create(opciones) as ExternalDefinition;
-            }
-            finally
-            {
-                if (!string.IsNullOrEmpty(archivoOriginal))
-                {
-                    try { app.SharedParametersFilename = archivoOriginal; } catch { }
-                }
-            }
-        }
-
-#if REVIT2021
-        private static BuiltInParameterGroup GrupoParametro() => BuiltInParameterGroup.PG_DATA;
-#else
-        private static ForgeTypeId GrupoParametro() => GroupTypeId.Data;
-#endif
-
-        /// <summary>
-        /// Rellena "Metrado - Material" en todos los elementos de las categorías.
-        /// Devuelve el número de elementos actualizados.
-        /// </summary>
-        public static int RellenarMaterial(Document doc, IEnumerable<BuiltInCategory> categorias, bool conservarExistente, List<string> advertencias)
+        public static int RellenarMaterial(Document doc, IEnumerable<BuiltInCategory> categorias, bool conservarExistente,
+            List<string> advertencias, out int respetadosArba)
         {
             int n = 0;
+            respetadosArba = 0;
             foreach (BuiltInCategory bic in categorias)
             {
                 var elementos = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().ToElements();
@@ -260,10 +143,12 @@ namespace ExportacionMetrados.Core.Metrado
                 {
                     try
                     {
-                        Parameter p = e.LookupParameter(NombreParametroMaterial);
+                        Parameter p = ArbaSharedParams.Get(e, ArbaContract.Material);
                         if (p == null || p.IsReadOnly) continue;
                         string actual = p.AsString();
-                        if (conservarExistente && !string.IsNullOrWhiteSpace(actual)) continue;
+                        bool tieneValor = !string.IsNullOrWhiteSpace(actual);
+                        if (tieneValor && ArbaOrigin.IsArba(e)) { respetadosArba++; continue; }
+                        if (conservarExistente && tieneValor) continue;
 
                         string valor = Clasificar(doc, e);
                         if (!string.Equals(actual, valor, StringComparison.Ordinal))
@@ -379,8 +264,7 @@ namespace ExportacionMetrados.Core.Metrado
         /// </summary>
         public static string ClasificacionActual(Document doc, Element e)
         {
-            string v = null;
-            try { v = e.LookupParameter(NombreParametroMaterial)?.AsString(); } catch { }
+            string v = ArbaSharedParams.GetText(e, ArbaContract.Material);
             return string.IsNullOrWhiteSpace(v) ? Clasificar(doc, e) : v.Trim().ToUpperInvariant();
         }
 
@@ -391,16 +275,32 @@ namespace ExportacionMetrados.Core.Metrado
             return ContienePista(nombre, PistasConexion);
         }
 
+        /// <summary>True si el elemento es un misceláneo del contrato ARBA: tiene "Metrado - Partida".</summary>
+        public static bool EsMiscelaneo(Element e) => e != null && ArbaMetrado.EsMiscelaneo(e);
+
         /// <summary>
-        /// Grupo de metrado del elemento: el de su categoría, salvo que sea una pieza de
-        /// conexión o anclaje de acero (por nombre) en una categoría metálica y el grupo
-        /// "Conexiones y anclajes" esté marcado, en cuyo caso va a ese grupo. Null si la
-        /// categoría no se metra.
+        /// True si el plugin NO debe sobrescribir "Metrado - Peso (kg)" del elemento: lo creó un
+        /// add-in ARBA ("ARBA - Origen" relleno) y ese add-in ya escribió un peso mayor que cero
+        /// (rejillas, ángulos). Las armaduras no se protegen: su peso lo calcula siempre este
+        /// plugin, también en las que armó un add-in ARBA (ver NOTAS-ARBA-COMUN.md).
+        /// </summary>
+        public static bool PesoProtegido(Element e) => e != null && !ArbaPartition.IsRebar(e) && ArbaMetrado.PesoProtegido(e);
+
+        /// <summary>
+        /// Grupo de metrado del elemento. Primero, los misceláneos del contrato (elementos con
+        /// "Metrado - Partida") si ese grupo está marcado; después, el de su categoría, salvo
+        /// que sea una pieza de conexión o anclaje de acero (por nombre) en una categoría
+        /// metálica y el grupo "Conexiones y anclajes" esté marcado. Null si no se metra.
         /// </summary>
         public static CategoriaMetrado GrupoDe(Document doc, Element e, IList<CategoriaMetrado> grupos)
         {
-            CategoriaMetrado porCategoria = CategoriaMetrado.DeCategoria(grupos, e.Category?.Id);
-            if (porCategoria == null) return null;
+            ElementId idCategoria = e.Category?.Id;
+
+            CategoriaMetrado miscelaneos = grupos.FirstOrDefault(g => g.EsMiscelaneos && g.Seleccionada);
+            if (miscelaneos != null && miscelaneos.Contiene(idCategoria) && EsMiscelaneo(e)) return miscelaneos;
+
+            CategoriaMetrado porCategoria = CategoriaMetrado.DeCategoria(grupos, idCategoria);
+            if (porCategoria == null || porCategoria.EsMiscelaneos) return null;
 
             CategoriaMetrado conexiones = grupos.FirstOrDefault(g => g.EsConexiones && g.Seleccionada);
             if (conexiones == null || conexiones == porCategoria || !porCategoria.PuedeSerMetalica) return porCategoria;
@@ -410,8 +310,9 @@ namespace ExportacionMetrados.Core.Metrado
 
         /// <summary>
         /// Ejemplares que pertenecen al grupo según <see cref="GrupoDe"/>: los de sus
-        /// categorías menos las piezas de conexión absorbidas por "Conexiones y anclajes",
-        /// que a su vez recoge las de todas las categorías metálicas.
+        /// categorías menos las piezas de conexión absorbidas por "Conexiones y anclajes" (que
+        /// a su vez recoge las de todas las categorías metálicas) y los misceláneos (que van a
+        /// su grupo).
         /// </summary>
         public static List<Element> ElementosDelGrupo(Document doc, CategoriaMetrado cat, IList<CategoriaMetrado> grupos)
         {
@@ -477,34 +378,47 @@ namespace ExportacionMetrados.Core.Metrado
             return false;
         }
 
+        // ------------------------------------------------------------------
+        // Peso en kg
+        // ------------------------------------------------------------------
+
         /// <summary>
         /// Escribe "Metrado - Peso (kg)" en cada armadura con el peso calculado.
         /// Devuelve el número de armaduras actualizadas.
         /// </summary>
-        public static int RellenarPesos(Document doc, IEnumerable<BarraAcero> barras, List<string> advertencias)
+        public static int RellenarPesos(Document doc, IEnumerable<BarraAcero> barras, List<string> advertencias, out int respetados)
         {
-            return EscribirPesos(doc, barras.Select(b => new KeyValuePair<ElementId, double>(b.Id, b.PesoKg)), "de la armadura", advertencias);
+            return EscribirPesos(doc, barras.Select(b => new KeyValuePair<ElementId, double>(b.Id, b.PesoKg)), "de la armadura",
+                advertencias, out respetados);
         }
 
         /// <summary>
-        /// Escribe "Metrado - Peso (kg)" en cada perfil metálico (longitud × área de
-        /// sección × densidad). Devuelve el número de perfiles actualizados.
+        /// Escribe "Metrado - Peso (kg)" en cada perfil o pieza metálica (longitud × área de
+        /// sección × densidad, o volumen × densidad). Las piezas cuyo peso ya escribió su add-in
+        /// ARBA (rejillas, ángulos) no se tocan y se cuentan en <paramref name="respetados"/>.
+        /// Devuelve el número de perfiles actualizados.
         /// </summary>
-        public static int RellenarPesosPerfiles(Document doc, IEnumerable<ElementoAceroEstructural> perfiles, List<string> advertencias)
+        public static int RellenarPesosPerfiles(Document doc, IEnumerable<ElementoAceroEstructural> perfiles, List<string> advertencias,
+            out int respetados)
         {
-            return EscribirPesos(doc, perfiles.Select(p => new KeyValuePair<ElementId, double>(p.Id, p.PesoKg)), "del perfil", advertencias);
+            return EscribirPesos(doc, perfiles.Select(p => new KeyValuePair<ElementId, double>(p.Id, p.PesoKg)), "del perfil",
+                advertencias, out respetados);
         }
 
         private static int EscribirPesos(Document doc, IEnumerable<KeyValuePair<ElementId, double>> pesos, string descripcion,
-            List<string> advertencias)
+            List<string> advertencias, out int respetados)
         {
             int n = 0;
+            respetados = 0;
             foreach (KeyValuePair<ElementId, double> par in pesos)
             {
                 try
                 {
                     Element e = doc.GetElement(par.Key);
-                    Parameter p = e?.LookupParameter(NombreParametroPeso);
+                    if (e == null) continue;
+                    if (PesoProtegido(e)) { respetados++; continue; }
+
+                    Parameter p = ArbaSharedParams.Get(e, ArbaContract.Peso);
                     if (p == null || p.IsReadOnly || p.StorageType != StorageType.Double) continue;
 
                     double valor = Math.Round(par.Value, 3);
@@ -537,20 +451,7 @@ namespace ExportacionMetrados.Core.Metrado
         }
 
         /// <summary>Id del elemento anfitrión de una barra, malla o refuerzo de sistema.</summary>
-        public static ElementId AnfitrionDe(Element refuerzo)
-        {
-            try
-            {
-                switch (refuerzo)
-                {
-                    case Rebar r: return r.GetHostId();
-                    case RebarInSystem ris: return ris.GetHostId();
-                    case FabricSheet fs: return fs.HostId;
-                }
-            }
-            catch { }
-            return ElementId.InvalidElementId;
-        }
+        public static ElementId AnfitrionDe(Element refuerzo) => ArbaPartition.RebarHostId(refuerzo);
 
         /// <summary>
         /// A partir de una selección mixta (anfitriones y/o refuerzo) devuelve el
@@ -566,7 +467,7 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 Element e = doc.GetElement(id);
                 if (e == null) continue;
-                if (e is Rebar || e is RebarInSystem || e is FabricSheet) resultado[e.Id] = e;
+                if (ArbaPartition.IsRebar(e)) resultado[e.Id] = e;
                 else hosts.Add(id);
             }
 
@@ -582,9 +483,9 @@ namespace ExportacionMetrados.Core.Metrado
 
         /// <summary>
         /// Escribe "Metrado - Elemento" en cada refuerzo con el tipo de su anfitrión
-        /// (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS; otra categoría, su nombre en
-        /// mayúsculas). Siempre se sobrescribe: es un dato calculado, no del usuario.
-        /// Devuelve el número de refuerzos actualizados.
+        /// (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS, CONEXIONES, OTROS). Siempre se
+        /// sobrescribe: es un dato calculado, no del usuario. Devuelve el número de
+        /// refuerzos actualizados.
         /// </summary>
         public static int RellenarElementoRefuerzo(Document doc, IEnumerable<Element> refuerzo, IList<CategoriaMetrado> categorias,
             List<string> advertencias)
@@ -595,13 +496,13 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 try
                 {
-                    Parameter p = r.LookupParameter(NombreParametroElementoRefuerzo);
+                    Parameter p = ArbaSharedParams.Get(r, ArbaContract.Elemento);
                     if (p == null || p.IsReadOnly || p.StorageType != StorageType.String) continue;
 
                     Element host = doc.GetElement(AnfitrionDe(r));
                     string valor;
                     if (host?.Category == null) valor = "(SIN ANFITRIÓN)";
-                    else valor = CategoriaMetrado.DeCategoria(categorias, host.Category.Id)?.NombreParticion ?? host.Category.Name.ToUpperInvariant();
+                    else valor = CategoriaMetrado.DeCategoria(categorias, host.Category.Id)?.NombreParticion ?? ArbaPartition.CategoryOf(host);
 
                     if (!string.Equals(p.AsString() ?? string.Empty, valor, StringComparison.Ordinal))
                     {
@@ -619,21 +520,26 @@ namespace ExportacionMetrados.Core.Metrado
 
         /// <summary>
         /// Escribe "Metrado - Elemento" en cada elemento de los grupos indicados con el
-        /// nombre de su grupo (VIGAS, COLUMNAS, ..., OTROS). Es lo que filtra la tabla
-        /// "Metrado acero estructural - Otros", que reúne varias categorías de Revit.
-        /// Devuelve el número de elementos actualizados.
+        /// nombre de su grupo (VIGAS, COLUMNAS, ..., OTROS; MISCELANEOS en los elementos con
+        /// "Metrado - Partida"). Es lo que filtra las tablas de varias categorías ("Otros",
+        /// "Conexiones y anclajes", "Misceláneos") y saca a los misceláneos de las demás.
+        /// Devuelve el número de elementos actualizados; <paramref name="miscelaneos"/> cuenta
+        /// los que quedaron en ese grupo.
         /// </summary>
         public static int RellenarElementoEnElementos(Document doc, IEnumerable<BuiltInCategory> categorias,
-            IList<CategoriaMetrado> grupos, List<string> advertencias)
+            IList<CategoriaMetrado> grupos, List<string> advertencias, out int miscelaneos)
         {
             int n = 0;
+            miscelaneos = 0;
             foreach (Element e in CategoriaMetrado.Colector(doc, categorias).ToElements())
             {
                 try
                 {
-                    string valor = GrupoDe(doc, e, grupos)?.NombreParticion;
+                    CategoriaMetrado grupo = GrupoDe(doc, e, grupos);
+                    string valor = grupo?.NombreParticion;
                     if (valor == null) continue;
-                    Parameter p = e.LookupParameter(NombreParametroElementoRefuerzo);
+                    if (grupo.EsMiscelaneos) miscelaneos++;
+                    Parameter p = ArbaSharedParams.Get(e, ArbaContract.Elemento);
                     if (p == null || p.IsReadOnly || p.StorageType != StorageType.String) continue;
                     if (!string.Equals(p.AsString() ?? string.Empty, valor, StringComparison.Ordinal))
                     {
@@ -650,38 +556,68 @@ namespace ExportacionMetrados.Core.Metrado
         }
 
         /// <summary>
-        /// Escribe la partición de cada refuerzo. Si <paramref name="textoFijo"/> es
-        /// nulo se usa el nombre de partición de la categoría del anfitrión
-        /// (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS). Devuelve el número de cambios.
+        /// True si la partición del refuerzo la escribió un add-in ARBA de armado (forma del
+        /// contrato "CIMIENTOS - ZAP-Z1" o antigua "ZAP-Z1", "CC-C1", "BLQ-FT-01-F1"...) o el
+        /// refuerzo lleva un "ARBA - Origen" distinto de MANUAL: el plugin no la toca nunca, ni
+        /// con "Sobrescribir". Las particiones MAN y el origen MANUAL son del propio plugin y
+        /// sí se pueden reescribir.
         /// </summary>
-        public static int AsignarParticion(Document doc, IEnumerable<Element> refuerzo, IList<CategoriaMetrado> categorias,
-            bool sobrescribir, string textoFijo, List<string> advertencias)
+        public static bool EsParticionProtegida(Element refuerzo, string particion = null)
+        {
+            ArbaPartitionInfo info = ArbaPartition.Parse(particion ?? ArbaPartition.Read(refuerzo));
+            if (info.IsArba && info.PrefixInfo != ArbaContract.Manual) return true;
+
+            if (!ArbaOrigin.IsArba(refuerzo)) return false;
+            ArbaPrefix origen = ArbaOrigin.PrefixOf(refuerzo);
+            // Origen de otro add-in, o un origen que este contrato no conoce (versión más nueva): se respeta.
+            return origen == null || origen != ArbaContract.Manual;
+        }
+
+        /// <summary>
+        /// Escribe la partición de cada refuerzo que no creó un add-in ARBA. Con
+        /// <paramref name="textoFijo"/> se escribe ese texto tal cual; sin él, la forma del
+        /// contrato "CATEGORIA - MAN-marca" (categoría y marca, o Id, del anfitrión; p. ej.
+        /// "VIGAS - MAN-V1"; sin anfitrión, "OTROS - MAN-&lt;id&gt;") y además "ARBA - Origen" =
+        /// MANUAL y "Metrado - Elemento" con la categoría. Las particiones que ya tienen texto
+        /// se respetan salvo <paramref name="sobrescribir"/>; las de los add-ins ARBA se
+        /// respetan siempre y se cuentan en <paramref name="respetadasArba"/>.
+        /// Los parámetros del contrato deben existir (<see cref="AsegurarParametrosContrato"/>).
+        /// Devuelve el número de particiones cambiadas.
+        /// </summary>
+        public static int AsignarParticion(Document doc, IEnumerable<Element> refuerzo, bool sobrescribir, string textoFijo,
+            List<string> advertencias, out int respetadasArba)
         {
             int n = 0;
+            respetadasArba = 0;
+            string fijo = string.IsNullOrWhiteSpace(textoFijo) ? null : textoFijo.Trim();
 
             foreach (Element r in refuerzo)
             {
                 try
                 {
-                    Parameter p = r.get_Parameter(BuiltInParameter.NUMBER_PARTITION_PARAM);
+                    Parameter p = ArbaPartition.PartitionParameter(r);
                     if (p == null || p.IsReadOnly) continue;
 
-                    string actual = p.AsString() ?? string.Empty;
-                    if (!sobrescribir && !string.IsNullOrWhiteSpace(actual)) continue;
+                    string actual = (p.AsString() ?? string.Empty).Trim();
+                    if (EsParticionProtegida(r, actual)) { respetadasArba++; continue; }
+                    if (!sobrescribir && actual.Length > 0) continue;
 
-                    string valor = textoFijo;
-                    if (string.IsNullOrWhiteSpace(valor))
+                    Element host = doc.GetElement(AnfitrionDe(r));
+                    string valor;
+                    if (fijo != null) valor = fijo;
+                    else if (host != null) valor = ArbaPartition.BuildFor(host, ArbaContract.Manual);
+                    else valor = ArbaPartition.Build(ArbaContract.CatOtros, ArbaContract.Manual.Prefix, string.Empty, ArbaRevit.IdValue(r.Id).ToString());
+
+                    bool cambiada = !string.Equals(actual, valor, StringComparison.Ordinal) && ArbaPartition.Write(r, valor);
+
+                    if (fijo == null)
                     {
-                        Element host = doc.GetElement(AnfitrionDe(r));
-                        valor = host?.Category == null ? null : CategoriaMetrado.DeCategoria(categorias, host.Category.Id)?.NombreParticion;
-                        if (valor == null) continue;
+                        // Origen MANUAL (sin código) y "Metrado - Elemento" con la categoría del anfitrión.
+                        if (host != null) ArbaOrigin.WriteFor(r, host, ArbaContract.Manual, string.Empty);
+                        else ArbaOrigin.Write(r, ArbaContract.Manual.Origin, string.Empty, null, ArbaContract.CatOtros);
                     }
 
-                    if (!string.Equals(actual, valor, StringComparison.Ordinal))
-                    {
-                        p.Set(valor);
-                        n++;
-                    }
+                    if (cambiada) n++;
                 }
                 catch (Exception ex)
                 {

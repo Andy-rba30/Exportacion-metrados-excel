@@ -11,9 +11,11 @@ using ExportacionMetrados.UI;
 namespace ExportacionMetrados
 {
     /// <summary>
-    /// Escribe el parámetro Partición del acero de refuerzo, a un elemento, a una
-    /// selección o a todo el modelo, con el nombre de la categoría del anfitrión
-    /// o con un texto propio.
+    /// Escribe el parámetro Partición del acero de refuerzo que no creó ningún add-in ARBA, a
+    /// un elemento, a una selección o a todo el modelo, con la forma del contrato ARBA-comun
+    /// ("CATEGORIA - MAN-marca", p. ej. "VIGAS - MAN-V1", y "ARBA - Origen" = MANUAL) o con un
+    /// texto propio. Las armaduras de los add-ins ARBA (ZAP, CCO, BLQ, VIG, COL, LOS, MCO) no
+    /// se tocan.
     /// </summary>
     [Transaction(TransactionMode.Manual)]
     [Regeneration(RegenerationOption.Manual)]
@@ -70,19 +72,29 @@ namespace ExportacionMetrados
                 }
 
                 var advertencias = new List<string>();
-                int cambios;
+                int cambios, respetadasArba;
                 using (var t = new Transaction(doc, "Asignar partición al refuerzo"))
                 {
                     t.Start();
-                    cambios = ClasificadorElementos.AsignarParticion(doc, refuerzo, CategoriaMetrado.Predeterminadas(),
-                        ventana.Sobrescribir, ventana.TextoPersonalizado, advertencias);
+                    // "ARBA - Origen" y "Metrado - Elemento" se escriben junto con la partición: los parámetros del
+                    // contrato deben existir (se migran los homónimos manuales conservando los valores).
+                    ClasificadorElementos.AsegurarParametrosContrato(doc, advertencias);
+                    doc.Regenerate();
+                    cambios = ClasificadorElementos.AsignarParticion(doc, refuerzo, ventana.Sobrescribir, ventana.TextoPersonalizado,
+                        advertencias, out respetadasArba);
                     t.Commit();
                 }
 
                 var dialogo = new TaskDialog("Asignar partición")
                 {
                     MainInstruction = "Partición asignada",
-                    MainContent = $"Armaduras revisadas: {refuerzo.Count}\nArmaduras modificadas: {cambios}",
+                    MainContent = $"Armaduras revisadas: {refuerzo.Count}\n" +
+                                  $"Armaduras modificadas: {cambios}\n" +
+                                  $"Respetadas (creadas por un add-in ARBA): {respetadasArba}\n" +
+                                  (ventana.TextoPersonalizado == null
+                                      ? "Forma de la partición: CATEGORIA - MAN-marca del anfitrión, con \"ARBA - Origen\" = MANUAL\n"
+                                      : $"Texto escrito: \"{ventana.TextoPersonalizado}\"\n") +
+                                  $"Contrato ARBA-comun: {ClasificadorElementos.VersionContrato}",
                     CommonButtons = TaskDialogCommonButtons.Close,
                 };
                 if (advertencias.Count > 0) dialogo.ExpandedContent = string.Join("\n", advertencias);

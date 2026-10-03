@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Arba.Comun;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.DB.Structure.StructuralSections;
@@ -99,8 +100,12 @@ namespace ExportacionMetrados.Core.Metrado
                     // la que filtran las tablas de Revit, para que el resumen coincida con ellas.
                     string clasificacion = ClasificacionDe(e);
 
-                    // Los perfiles metálicos no se metran por volumen sino por peso.
-                    if (cat.PuedeSerMetalica && clasificacion == ClasificadorElementos.ValorAceroEstructural)
+                    // Los perfiles metálicos no se metran por volumen sino por peso. Los misceláneos del
+                    // contrato ARBA también, cuando son metálicos o su add-in ya escribió su peso.
+                    bool porPeso = cat.PuedeSerMetalica &&
+                                   (clasificacion == ClasificadorElementos.ValorAceroEstructural ||
+                                    (cat.EsMiscelaneos && ClasificadorElementos.PesoProtegido(e)));
+                    if (porPeso)
                     {
                         ElementoAceroEstructural perfil = MedirPerfilMetalico(e, cat, resultado);
                         if (perfil != null) resultado.AceroEstructural.Add(perfil);
@@ -328,25 +333,28 @@ namespace ExportacionMetrados.Core.Metrado
 
         /// <summary>
         /// Clasificación del elemento en "Metrado - Material" (CONCRETO, ACERO ESTRUCTURAL,
-        /// MADERA u OTRO): se respeta el valor ya escrito si se pidió conservarlo; si no,
-        /// la misma que escribirá el plugin al rellenar el parámetro.
+        /// MADERA u OTRO): se respeta el valor ya escrito si se pidió conservarlo o si lo
+        /// escribió un add-in ARBA (elementos con "ARBA - Origen", que el plugin no pisa); si
+        /// no, la misma que escribirá el plugin al rellenar el parámetro.
         /// </summary>
         private string ClasificacionDe(Element e)
         {
-            if (_opciones.ConservarClasificacionMaterial)
+            string actual = ArbaSharedParams.GetText(e, ArbaContract.Material);
+            if (!string.IsNullOrWhiteSpace(actual) && (_opciones.ConservarClasificacionMaterial || ArbaOrigin.IsArba(e)))
             {
-                string actual = null;
-                try { actual = e.LookupParameter(ClasificadorElementos.NombreParametroMaterial)?.AsString(); } catch { }
-                if (!string.IsNullOrWhiteSpace(actual)) return actual.Trim().ToUpperInvariant();
+                return actual.Trim().ToUpperInvariant();
             }
             return ClasificadorElementos.Clasificar(_doc, e);
         }
 
         /// <summary>
         /// Mide una pieza metálica. Perfiles: peso = longitud × área de la sección × densidad.
-        /// Piezas sin longitud ni sección (conexiones, planchas, coberturas, o un perfil
-        /// que no expone su longitud): peso = volumen × densidad. Devuelve null (con
-        /// advertencia) si no hay con qué pesarla.
+        /// Piezas sin longitud ni sección (conexiones, planchas, coberturas, misceláneos, o un
+        /// perfil que no expone su longitud): peso = volumen × densidad. Piezas cuyo peso ya
+        /// escribió su add-in ARBA (rejillas, ángulos: "ARBA - Origen" relleno y
+        /// "Metrado - Peso (kg)" &gt; 0): ese peso, que el plugin no recalcula. Guarda además
+        /// partida, pernos, código y origen del contrato. Devuelve null (con advertencia) si no
+        /// hay con qué pesarla.
         /// </summary>
         private ElementoAceroEstructural MedirPerfilMetalico(Element e, CategoriaMetrado cat, ResultadoMetrado resultado)
         {
@@ -360,8 +368,15 @@ namespace ExportacionMetrados.Core.Metrado
             double areaM2 = 0;
             string fuenteArea;
             double pesoKg;
+            bool pesoProtegido = ClasificadorElementos.PesoProtegido(e);
 
-            if (longitudM > 0)
+            if (pesoProtegido)
+            {
+                // Peso escrito por el add-in que creó la pieza (contrato ARBA): se respeta.
+                pesoKg = ArbaSharedParams.GetDouble(e, ArbaContract.Peso);
+                fuenteArea = "Peso escrito por el add-in " + ArbaOrigin.OriginOf(e);
+            }
+            else if (longitudM > 0)
             {
                 areaM2 = ObtenerAreaSeccion(e, tipo, out fuenteArea);
                 if (areaM2 <= 0 && volumenM3 > 0)
@@ -409,6 +424,12 @@ namespace ExportacionMetrados.Core.Metrado
                 DensidadKgM3 = densidad,
                 PesoKg = pesoKg,
                 VolumenM3 = volumenM3,
+                Partida = ArbaSharedParams.GetText(e, ArbaContract.Partida).Trim(),
+                Pernos = ArbaSharedParams.GetInteger(e, ArbaContract.Pernos),
+                Codigo = ArbaOrigin.CodeOf(e),
+                Origen = ArbaOrigin.OriginOf(e),
+                EsMiscelaneo = cat.EsMiscelaneos,
+                PesoProtegido = pesoProtegido,
             };
         }
 
@@ -587,10 +608,11 @@ namespace ExportacionMetrados.Core.Metrado
         {
             var tipoMalla = _doc.GetElement(malla.GetTypeId()) as FabricSheetType;
 
+            // Largo y ancho cortados de la hoja; si no los expone, las dimensiones totales del tipo de malla.
             double largoPies = LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_CUT_OVERALL_LENGTH);
             double anchoPies = LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_CUT_OVERALL_WIDTH);
-            if (largoPies <= 0) largoPies = LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_TOTAL_LENGTH);
-            if (anchoPies <= 0) anchoPies = LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_TOTAL_WIDTH);
+            if (largoPies <= 0 && tipoMalla != null) largoPies = LeerDouble(tipoMalla, BuiltInParameter.FABRIC_SHEET_OVERALL_LENGTH);
+            if (anchoPies <= 0 && tipoMalla != null) anchoPies = LeerDouble(tipoMalla, BuiltInParameter.FABRIC_SHEET_OVERALL_WIDTH);
 
             double largoM = AMetros(largoPies);
             double anchoM = AMetros(anchoPies);
@@ -602,7 +624,9 @@ namespace ExportacionMetrados.Core.Metrado
 
             if (masaKg <= 0)
             {
-                masaKg = AKilogramos(LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_SHEET_MASS));
+                // Masa total de la hoja (sin cortar) y, si tampoco, la masa de hoja del tipo.
+                masaKg = AKilogramos(LeerDouble(malla, BuiltInParameter.FABRIC_PARAM_TOTAL_SHEET_MASS));
+                if (masaKg <= 0 && tipoMalla != null) masaKg = AKilogramos(LeerDouble(tipoMalla, BuiltInParameter.FABRIC_SHEET_MASS));
                 fuente = "Masa de hoja";
             }
             if (masaKg <= 0 && tipoMalla != null)
@@ -721,12 +745,11 @@ namespace ExportacionMetrados.Core.Metrado
                 if (!rebar.IncludeLastBar && i == posiciones - 1) continue;
                 try
                 {
+                    // Argumentos posicionales: el segundo se llama "suppressHooks" hasta Revit 2025 y
+                    // "suppressHooksAndCranks" desde 2026 (adjustForSelfIntersection, suppressHooks,
+                    // suppressBendRadius, multiplanarOption, barPositionIndex).
                     IList<Curve> curvas = rebar.GetCenterlineCurves(
-                        adjustForSelfIntersection: false,
-                        suppressHooks: false,
-                        suppressBendRadius: false,
-                        multiplanarOption: MultiplanarOption.IncludeAllMultiplanarCurves,
-                        barPositionIndex: i);
+                        false, false, false, MultiplanarOption.IncludeAllMultiplanarCurves, i);
                     foreach (Curve c in curvas) total += c.Length;
                 }
                 catch (Autodesk.Revit.Exceptions.ApplicationException)
