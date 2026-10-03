@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
 using Autodesk.Revit.DB.Structure.StructuralSections;
@@ -25,7 +26,16 @@ namespace ExportacionMetrados.Core.Metrado
             "Section Area", "Área de sección", "Area de seccion", "Área de la sección", "Área sección", "Area", "Área", "A",
         };
 
-        private static readonly string[] PalabrasConcreto = { "concret", "hormig", "f'c", "f´c", "fc=", "fc " };
+        private static readonly string[] PalabrasConcreto = { "concret", "hormig" };
+        /// <summary>
+        /// Resistencia del concreto en el nombre del material ("f'c 280", "F´C=210", "fc 210"),
+        /// como palabra completa. Antes se buscaba "fc " como subcadena y los materiales
+        /// "Material IFC (r-g-b)" que crea la importación de IFC (contienen "ifc ") se
+        /// tomaban por concreto: por eso los perfiles metálicos importados se colaban en
+        /// las tablas de concreto.
+        /// </summary>
+        private static readonly Regex ResistenciaConcreto =
+            new Regex(@"(?<![a-z])f['´`]?c(?![a-z])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
         /// <summary>Nombres habituales del parámetro de peso por metro en los tipos de barra.</summary>
         public static readonly string[] NombresParametroPesoBarra =
         {
@@ -86,11 +96,21 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 try
                 {
+                    // Misma clasificación que escribe el plugin en "Metrado - Material" y por
+                    // la que filtran las tablas de Revit, para que el resumen coincida con ellas.
+                    string clasificacion = ClasificacionDe(e);
+
                     // Los perfiles metálicos no se metran por volumen sino por peso.
-                    if (cat.PuedeSerMetalica && EsAceroEstructural(e))
+                    if (cat.PuedeSerMetalica && clasificacion == ClasificadorElementos.ValorAceroEstructural)
                     {
                         ElementoAceroEstructural perfil = MedirPerfilMetalico(e, cat.Nombre, resultado);
                         if (perfil != null) resultado.AceroEstructural.Add(perfil);
+                        continue;
+                    }
+
+                    if (_opciones.SoloMaterialConcreto && clasificacion != ClasificadorElementos.ValorConcreto)
+                    {
+                        resultado.ElementosOmitidosPorMaterial++;
                         continue;
                     }
 
@@ -117,7 +137,9 @@ namespace ExportacionMetrados.Core.Metrado
             // muros compuestos esto excluye acabados, aislamiento, etc.).
             double volumenPies3 = 0;
             string nombreMaterial = null;
-            bool hayMateriales = false;
+            // Materiales que sí informan: los genéricos ("Material IFC (r-g-b)" de una
+            // importación de IFC, "Por defecto"...) no permiten verificar nada.
+            bool hayMaterialesConocidos = false;
 
             ICollection<ElementId> materiales;
             try { materiales = e.GetMaterialIds(false); }
@@ -125,9 +147,9 @@ namespace ExportacionMetrados.Core.Metrado
 
             foreach (ElementId matId in materiales)
             {
-                hayMateriales = true;
                 Material mat = _doc.GetElement(matId) as Material;
                 if (mat == null) continue;
+                if (!ClasificadorElementos.EsMaterialGenerico(mat)) hayMaterialesConocidos = true;
 
                 bool esConcreto = EsMaterialConcreto(mat);
                 if (esConcreto || !_opciones.SoloMaterialConcreto)
@@ -143,14 +165,16 @@ namespace ExportacionMetrados.Core.Metrado
 
             if (volumenPies3 <= 0)
             {
-                // Sin materiales asignados (por ejemplo "<Por categoría>"): usar el
-                // material estructural o el de la categoría y el volumen total.
+                // Sin materiales de concreto asignados (por ejemplo "<Por categoría>" o solo
+                // genéricos): usar el material estructural o el de la categoría y el volumen total.
                 Material matEstructural = ObtenerMaterialEstructural(e);
                 bool esConcreto = matEstructural != null && EsMaterialConcreto(matEstructural);
+                bool materialConocido = hayMaterialesConocidos ||
+                                        (matEstructural != null && !ClasificadorElementos.EsMaterialGenerico(matEstructural));
 
-                // Si se conoce el material y no es concreto, se omite. Si no hay
-                // material asignado no se puede verificar y se incluye con aviso.
-                if (_opciones.SoloMaterialConcreto && (hayMateriales || matEstructural != null) && !esConcreto)
+                // Si se conoce el material y no es concreto, se omite. Si no hay material
+                // asignado (o es genérico) no se puede verificar y se incluye.
+                if (_opciones.SoloMaterialConcreto && materialConocido && !esConcreto)
                 {
                     return null;
                 }
@@ -237,6 +261,15 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>Material estructural de un elemento (instancia, tipo o categoría).</summary>
         public static Material MaterialEstructuralDe(Document doc, Element e)
         {
+            return MaterialEstructuralAsignado(doc, e) ?? e.Category?.Material;
+        }
+
+        /// <summary>
+        /// Material estructural asignado al elemento o a su tipo, sin recurrir al material
+        /// por defecto de la categoría. Null si no tiene ninguno asignado.
+        /// </summary>
+        public static Material MaterialEstructuralAsignado(Document doc, Element e)
+        {
             Parameter p = e.get_Parameter(BuiltInParameter.STRUCTURAL_MATERIAL_PARAM);
             if (p == null || p.AsElementId() == ElementId.InvalidElementId)
             {
@@ -247,7 +280,7 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 return doc.GetElement(p.AsElementId()) as Material;
             }
-            return e.Category?.Material;
+            return null;
         }
 
         private static bool ContienePalabraConcreto(string texto)
@@ -258,7 +291,7 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 if (t.Contains(palabra)) return true;
             }
-            return false;
+            return ResistenciaConcreto.IsMatch(t);
         }
 
         private static double ObtenerLongitud(Element e)
@@ -293,22 +326,19 @@ namespace ExportacionMetrados.Core.Metrado
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// True si el elemento está (o quedará) clasificado como ACERO ESTRUCTURAL en
-        /// "Metrado - Material": se respeta el valor ya escrito si se pidió conservarlo;
-        /// si no, se clasifica igual que lo hará el plugin al rellenar el parámetro.
+        /// Clasificación del elemento en "Metrado - Material" (CONCRETO, ACERO ESTRUCTURAL,
+        /// MADERA u OTRO): se respeta el valor ya escrito si se pidió conservarlo; si no,
+        /// la misma que escribirá el plugin al rellenar el parámetro.
         /// </summary>
-        private bool EsAceroEstructural(Element e)
+        private string ClasificacionDe(Element e)
         {
             if (_opciones.ConservarClasificacionMaterial)
             {
                 string actual = null;
                 try { actual = e.LookupParameter(ClasificadorElementos.NombreParametroMaterial)?.AsString(); } catch { }
-                if (!string.IsNullOrWhiteSpace(actual))
-                {
-                    return string.Equals(actual.Trim(), ClasificadorElementos.ValorAceroEstructural, StringComparison.OrdinalIgnoreCase);
-                }
+                if (!string.IsNullOrWhiteSpace(actual)) return actual.Trim().ToUpperInvariant();
             }
-            return ClasificadorElementos.Clasificar(_doc, e) == ClasificadorElementos.ValorAceroEstructural;
+            return ClasificadorElementos.Clasificar(_doc, e);
         }
 
         /// <summary>

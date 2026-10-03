@@ -127,8 +127,8 @@ función aparte para tablas que ya existen en el proyecto.)
 
 | Tabla | Contenido | Agrupación |
 |---|---|---|
-| `Metrado concreto - Vigas` / `Cimentaciones` | Elemento (familia y tipo), Material, Cantidad, Longitud o Área, Espesor, Volumen. Solo elementos con material de concreto. | Por tipo; total general. **Sin niveles** (una viga puede cruzar varios; las cimentaciones comparten el nivel de fundación). |
-| `Metrado concreto - Columnas` / `Losas` / `Muros` | Nivel, Elemento, Material, Cantidad, Longitud o Área, Espesor, Volumen | Por nivel (encabezado y pie con totales), luego tipo; total general |
+| `Metrado concreto - Vigas` / `Losas` / `Cimentaciones` | Elemento (familia y tipo), Material, Cantidad, Longitud o Área, Espesor, Volumen. Solo elementos con material de concreto. | Por tipo; total general. **Sin niveles** (una viga puede cruzar varios, las losas se metran por tipo en todo el edificio y las cimentaciones comparten el nivel de fundación). |
+| `Metrado concreto - Columnas` / `Muros` | Nivel, Elemento, Material, Cantidad, Longitud o Área, Espesor, Volumen | Por nivel (encabezado y pie con totales), luego tipo; total general |
 | `Metrado acero estructural - <elemento>` | Elementos cuyo material **no** es concreto (perfiles metálicos): Elemento, Material, Cantidad, Longitud, Área de sección, **Peso (kg)**. Los perfiles no se metran por volumen sino por peso. Solo se crea si existen. | Igual |
 | `Metrado acero - <elemento>` | Refuerzo con partición `VIGAS`, `COLUMNAS`, etc.: Partición, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario, Peso (kg) | Por partición (encabezado y pie con totales), luego tipo de barra; total general |
 | `Metrado acero - General` | Todo el refuerzo del modelo, mismas columnas | Por partición, luego tipo de barra; total general |
@@ -138,10 +138,15 @@ función aparte para tablas que ya existen en el proyecto.)
 - **Separación concreto / metálico**: el plugin crea el parámetro de proyecto **"Metrado - Material"**
   (texto, de ejemplar) en vigas, columnas, losas, cimentaciones y muros, y lo rellena con `CONCRETO`,
   `ACERO ESTRUCTURAL`, `MADERA` u `OTRO`. Para clasificar usa, en este orden: el "Material para
-  comportamiento del modelo" de la familia, los materiales del elemento, y el nombre de la familia o tipo
-  (perfiles HSS, W, C, L, IPE...). Las tablas de concreto filtran `= CONCRETO` y las de acero estructural
-  `≠ CONCRETO`. Si un elemento quedó mal clasificado, corrija el valor del parámetro en sus propiedades y
-  marque "Conservar la clasificación ya escrita" en la siguiente ejecución.
+  comportamiento del modelo" de la familia; los materiales asignados al elemento o a su tipo; el nombre de
+  la familia o tipo (perfiles HSS, W, C, L, IPE... y, en vigas y columnas, piezas de conexión: espárragos,
+  anclajes, pernos, planchas); y el material por defecto de la categoría. Sin ningún dato útil, losas,
+  muros y cimentaciones se asumen de concreto; vigas y columnas quedan como `OTRO`. Los materiales
+  genéricos que crea la importación de IFC ("Material IFC (155-155-155)") y los "Por defecto" no cuentan
+  como dato: un perfil importado se reconoce por su nombre (`W12X26`, `HSS2-1-2X2-1-2X3-16`, `L3X3X3-8`,
+  `ESPARRAGO 5-8`, `ANCLAJE_Ø7-8`...). Las tablas de concreto filtran `= CONCRETO` y las de acero
+  estructural `≠ CONCRETO`. Si un elemento quedó mal clasificado, corrija el valor del parámetro en sus
+  propiedades y marque "Conservar la clasificación ya escrita" en la siguiente ejecución.
 - **Respaldo del filtro**: si el parámetro "Metrado - Material" no se puede crear en el proyecto o la tabla
   no admite filtrarlo, las tablas se filtran por el material estructural: las de concreto muestran los
   elementos cuyo material contiene el texto indicado en la ventana (`Concreto` por defecto) y las de acero
@@ -187,9 +192,11 @@ función aparte para tablas que ya existen en el proyecto.)
   La densidad es la del **acero al carbono**, material de los perfiles estructurales: 7850 kg/m³ por
   defecto, ajustable en la ventana. El resultado se escribe en
   "Metrado - Peso (kg)" de cada perfil y la tabla `Metrado acero estructural - <elemento>` lo suma.
-- Si ya existe una tabla con el mismo nombre se reutiliza tal cual. La opción "Regenerar" la borra y la
-  crea de nuevo (se pierden columnas añadidas a mano y su colocación en planos). Tras actualizar el plugin
-  conviene regenerar una vez para obtener la nueva estructura.
+- Si ya existe una tabla con el mismo nombre se reutiliza tal cual, salvo que tenga una estructura de una
+  versión anterior (agrupada por nivel cuando ya no toca, o sin el filtro por "Metrado - Material"): esa
+  se crea de nuevo y se avisa en el resumen. La opción "Regenerar" borra y crea de nuevo todas (se pierden
+  columnas añadidas a mano y su colocación en planos). Una tabla abierta como vista activa no se puede
+  regenerar: ciérrela y vuelva a ejecutar el metrado.
 
 **Exportación a Excel en la misma operación** (opcional): el libro contiene
 
@@ -201,14 +208,19 @@ función aparte para tablas que ya existen en el proyecto.)
 
 **Cómo calcula el resumen** (independiente de las tablas, leyendo el modelo):
 
+- Qué elementos entran: los mismos que en las tablas de Revit, es decir, los clasificados como `CONCRETO`
+  en "Metrado - Material" (los `ACERO ESTRUCTURAL` van al metrado por peso; `MADERA` y `OTRO` se omiten
+  con "Solo material de concreto" marcado).
 - Volumen de concreto: suma del volumen de cada material del elemento que sea de concreto (clase o nombre con
-  "concreto", "hormigón", "concrete", "f'c", o activo estructural de clase Concrete). En losas y muros
-  compuestos excluye acabados y otras capas. Si el elemento no tiene materiales asignados se usa el
-  material estructural y el parámetro Volumen.
+  "concreto", "hormigón", "concrete", "f'c" / "fc 210" como palabra completa, o activo estructural de clase
+  Concrete). En losas y muros compuestos excluye acabados y otras capas. Si el elemento no tiene materiales
+  de concreto asignados, o solo genéricos ("Material IFC (r-g-b)", "Por defecto"), se usa el material
+  estructural y el parámetro Volumen.
 - Perfiles metálicos: vigas y columnas clasificadas como `ACERO ESTRUCTURAL`. Peso = longitud × área de
   sección × densidad del acero al carbono (7850 kg/m³ por defecto). No entran en el volumen de concreto.
-- Nivel: nivel de referencia (vigas), nivel base (columnas, muros) o el nivel del elemento. Vigas y
-  cimentaciones no se agrupan por nivel (ni en Revit ni en las hojas calculadas del Excel), solo por tipo.
+- Nivel: nivel de referencia (vigas), nivel base (columnas, muros) o el nivel del elemento. Vigas, losas y
+  cimentaciones no se agrupan por nivel (ni en Revit ni en las hojas calculadas del Excel), solo por tipo;
+  columnas y muros sí.
 - Acero: barras (`Rebar`), refuerzo por área y trayectoria (`RebarInSystem`) y mallas electrosoldadas
   (`FabricSheet`) cuyo anfitrión pertenece a las categorías marcadas. La longitud se toma del parámetro
   **Longitud total de barra** (`Total Bar Length`), que suma todas las piezas del conjunto con sus ganchos y

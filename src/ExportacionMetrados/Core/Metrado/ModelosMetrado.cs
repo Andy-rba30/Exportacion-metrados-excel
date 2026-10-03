@@ -27,12 +27,15 @@ namespace ExportacionMetrados.Core.Metrado
             Categoria == BuiltInCategory.OST_StructuralFraming || Categoria == BuiltInCategory.OST_StructuralColumns;
 
         /// <summary>
-        /// False en vigas y cimentaciones: su metrado no se agrupa por nivel (una viga
-        /// puede cruzar varios y las cimentaciones comparten el nivel de fundación),
-        /// solo por tipo. Vale tanto para las tablas de Revit como para el Excel.
+        /// False en vigas, losas y cimentaciones: su metrado no se agrupa por nivel (una
+        /// viga puede cruzar varios, las losas se metran por tipo en todo el edificio y
+        /// las cimentaciones comparten el nivel de fundación), solo por tipo. Columnas y
+        /// muros sí van por nivel. Vale tanto para las tablas de Revit como para el Excel.
         /// </summary>
         public bool AgruparPorNivel =>
-            Categoria != BuiltInCategory.OST_StructuralFraming && Categoria != BuiltInCategory.OST_StructuralFoundation;
+            Categoria != BuiltInCategory.OST_StructuralFraming &&
+            Categoria != BuiltInCategory.OST_StructuralFoundation &&
+            Categoria != BuiltInCategory.OST_Floors;
 
         public static List<CategoriaMetrado> Predeterminadas() => new List<CategoriaMetrado>
         {

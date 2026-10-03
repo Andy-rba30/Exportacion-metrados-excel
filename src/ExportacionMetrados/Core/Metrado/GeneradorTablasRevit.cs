@@ -12,6 +12,9 @@ namespace ExportacionMetrados.Core.Metrado
     ///   - "Metrado acero estructural - {elemento}" perfiles metálicos por peso (si los hay)
     ///   - "Metrado acero - {elemento}"             refuerzo cuyo anfitrión es de esa categoría
     ///   - "Metrado acero - General"                todo el refuerzo, por partición y elemento
+    /// Una tabla que ya existe se reutiliza, salvo que se pida regenerarla o que tenga una
+    /// estructura de una versión anterior (agrupada por nivel cuando ya no toca, o sin el
+    /// filtro por "Metrado - Material"): entonces se crea de nuevo y se avisa.
     /// Todos los métodos deben llamarse dentro de una transacción abierta.
     /// </summary>
     public class GeneradorTablasRevit
@@ -22,6 +25,17 @@ namespace ExportacionMetrados.Core.Metrado
         public const string NombreAceroGeneral = "Metrado acero - General";
 
         private const int MaxFiltros = 8;
+
+        /// <summary>Parámetros de nivel por los que se agrupan (o se agruparon) las tablas de elementos.</summary>
+        private static readonly BuiltInParameter[] ParametrosNivel =
+        {
+            BuiltInParameter.FAMILY_BASE_LEVEL_PARAM,          // columnas
+            BuiltInParameter.WALL_BASE_CONSTRAINT,             // muros
+            BuiltInParameter.LEVEL_PARAM,                      // losas, cimentaciones
+            BuiltInParameter.SCHEDULE_LEVEL_PARAM,
+            BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM,   // vigas (versiones anteriores)
+            BuiltInParameter.INSTANCE_SCHEDULE_ONLY_LEVEL_PARAM,
+        };
 
         private readonly Document _doc;
         private readonly OpcionesMetrado _op;
@@ -47,12 +61,14 @@ namespace ExportacionMetrados.Core.Metrado
             {
                 MaterialesCategoria mats = ClasificarMateriales(cat);
 
-                ViewSchedule t = CrearOReutilizar(PrefijoConcreto + cat.Nombre, () => CrearTablaElementos(cat, mats, concreto: true));
+                ViewSchedule t = CrearOReutilizar(PrefijoConcreto + cat.Nombre, () => CrearTablaElementos(cat, mats, concreto: true),
+                    existente => MotivoTablaElementosDesactualizada(existente, cat));
                 if (t != null) tablas.Add(t);
 
                 if (_op.TablasAceroEstructural && cat.PuedeSerMetalica && HayElementosNoConcreto(cat, mats))
                 {
-                    ViewSchedule m = CrearOReutilizar(PrefijoAceroEstructural + cat.Nombre, () => CrearTablaElementos(cat, mats, concreto: false));
+                    ViewSchedule m = CrearOReutilizar(PrefijoAceroEstructural + cat.Nombre, () => CrearTablaElementos(cat, mats, concreto: false),
+                        existente => MotivoTablaElementosDesactualizada(existente, cat));
                     if (m != null) tablas.Add(m);
                 }
             }
@@ -95,7 +111,13 @@ namespace ExportacionMetrados.Core.Metrado
         // Reutilización
         // ------------------------------------------------------------------
 
-        private ViewSchedule CrearOReutilizar(string nombre, Func<ViewSchedule> crear)
+        /// <param name="nombre">Nombre de la tabla.</param>
+        /// <param name="crear">Crea la tabla nueva.</param>
+        /// <param name="motivoDesactualizada">
+        /// Dada la tabla existente, devuelve por qué su estructura es de una versión anterior
+        /// (se regenera aunque no se haya pedido) o null si sirve tal cual.
+        /// </param>
+        private ViewSchedule CrearOReutilizar(string nombre, Func<ViewSchedule> crear, Func<ViewSchedule, string> motivoDesactualizada = null)
         {
             ViewSchedule existente = new FilteredElementCollector(_doc)
                 .OfClass(typeof(ViewSchedule))
@@ -104,16 +126,28 @@ namespace ExportacionMetrados.Core.Metrado
 
             if (existente != null)
             {
-                if (!_op.RegenerarTablasExistentes)
+                string motivo = null;
+                if (!_op.RegenerarTablasExistentes && motivoDesactualizada != null)
+                {
+                    try { motivo = motivoDesactualizada(existente); }
+                    catch (Exception) { motivo = null; }
+                }
+
+                if (!_op.RegenerarTablasExistentes && motivo == null)
                 {
                     TablasReutilizadas.Add(existente);
                     return existente;
                 }
                 if (existente.Id == _vistaActivaId)
                 {
-                    Advertencias.Add($"La tabla \"{nombre}\" es la vista activa y no se puede regenerar; se reutilizó.");
+                    Advertencias.Add($"La tabla \"{nombre}\" es la vista activa y no se puede regenerar; se reutilizó." +
+                                     (motivo != null ? $" Tiene una estructura antigua ({motivo}): ciérrela y vuelva a ejecutar el metrado." : string.Empty));
                     TablasReutilizadas.Add(existente);
                     return existente;
+                }
+                if (motivo != null)
+                {
+                    Advertencias.Add($"La tabla \"{nombre}\" tenía una estructura antigua ({motivo}); se creó de nuevo.");
                 }
                 _doc.Delete(existente.Id);
             }
@@ -130,6 +164,51 @@ namespace ExportacionMetrados.Core.Metrado
                 Advertencias.Add($"No se pudo crear la tabla \"{nombre}\": {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Motivo por el que una tabla de elementos creada por una versión anterior ya no
+        /// corresponde a la estructura actual, o null si sirve.
+        /// </summary>
+        private string MotivoTablaElementosDesactualizada(ViewSchedule tabla, CategoriaMetrado cat)
+        {
+            ScheduleDefinition def = tabla.Definition;
+
+            // Agrupada por nivel cuando la categoría ya no se agrupa así (vigas, losas, cimentaciones).
+            if (!cat.AgruparPorNivel)
+            {
+                int n = def.GetSortGroupFieldCount();
+                for (int i = 0; i < n; i++)
+                {
+                    ScheduleField f = def.GetField(def.GetSortGroupField(i).FieldId);
+                    if (f != null && ParametrosNivel.Any(bip => f.ParameterId == new ElementId(bip)))
+                    {
+                        return "agrupada por nivel";
+                    }
+                }
+            }
+
+            // Sin filtro por "Metrado - Material" aunque el parámetro ya existe en el proyecto
+            // (tablas creadas cuando solo se filtraba por el nombre del material).
+            if (ClasificadorElementos.IdParametroMaterial(_doc) != null)
+            {
+                bool filtrada = false;
+                int n = def.GetFilterCount();
+                for (int i = 0; i < n; i++)
+                {
+                    ScheduleField f = def.GetField(def.GetFilter(i).FieldId);
+                    string nombreCampo = null;
+                    try { nombreCampo = f?.GetName(); } catch (Exception) { }
+                    if (string.Equals(nombreCampo, ClasificadorElementos.NombreParametroMaterial, StringComparison.OrdinalIgnoreCase))
+                    {
+                        filtrada = true;
+                        break;
+                    }
+                }
+                if (!filtrada) return "sin filtro por \"" + ClasificadorElementos.NombreParametroMaterial + "\"";
+            }
+
+            return null;
         }
 
         private static void Renombrar(ViewSchedule tabla, string nombre)
@@ -184,12 +263,13 @@ namespace ExportacionMetrados.Core.Metrado
             ScheduleDefinition def = vs.Definition;
             IList<SchedulableField> campos = def.GetSchedulableFields();
 
-            // En vigas y cimentaciones no se agrupa por nivel (una viga puede cruzar varios;
-            // las cimentaciones comparten el nivel de fundación): solo por tipo.
+            // En vigas, losas y cimentaciones no se agrupa por nivel (una viga puede cruzar
+            // varios, las losas se metran por tipo y las cimentaciones comparten el nivel de
+            // fundación): solo por tipo. Columnas y muros sí.
             ScheduleField nivel = !cat.AgruparPorNivel ? null : Agregar(def, campos, "Nivel",
                 BuiltInParameter.FAMILY_BASE_LEVEL_PARAM,          // columnas
                 BuiltInParameter.WALL_BASE_CONSTRAINT,             // muros
-                BuiltInParameter.LEVEL_PARAM,                      // losas, cimentaciones
+                BuiltInParameter.LEVEL_PARAM,
                 BuiltInParameter.SCHEDULE_LEVEL_PARAM);
 
             ScheduleField tipo = Agregar(def, campos, "Elemento", BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM);

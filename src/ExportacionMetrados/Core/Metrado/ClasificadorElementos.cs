@@ -50,11 +50,23 @@ namespace ExportacionMetrados.Core.Metrado
             catch (Exception) { return null; }
         }
 
+        /// <summary>Perfiles y materiales metálicos reconocibles por el nombre de la familia o del tipo.</summary>
         private static readonly string[] PistasAcero =
         {
-            "acero", "steel", "metal", "perfil", "hss", "ipe", "ipn", "hea", "heb", "upn", "w ", "w1", "w2", "w3", "w4",
-            "c ", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "l ", "l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8",
-            "mc", "hp", "wt", "pl", "tubo", "tube", "pipe", "angle", "channel",
+            "acero", "steel", "metal", "perfil", "hss", "shs", "rhs", "chs", "ipe", "ipn", "hea", "heb", "upn", "upe",
+            "w ", "w1", "w2", "w3", "w4", "c ", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9",
+            "l ", "l1", "l2", "l3", "l4", "l5", "l6", "l7", "l8", "mc", "hp", "wt", "pl",
+            "tubo", "tube", "pipe", "angle", "angulo", "ángulo", "channel", "canal",
+        };
+
+        /// <summary>
+        /// Piezas de conexión metálicas (espárragos, anclajes, pernos, planchas...). Solo
+        /// cuentan en vigas y columnas, las categorías que pueden ser metálicas.
+        /// </summary>
+        private static readonly string[] PistasPiezasMetalicas =
+        {
+            "esparrago", "espárrago", "stud", "anclaje", "anchor", "perno", "bolt", "tuerca", "nut", "arandela", "washer",
+            "plate", "plancha", "rigidizador", "atiesador", "stiffener", "cartela", "gusset",
         };
 
         // ------------------------------------------------------------------
@@ -263,7 +275,13 @@ namespace ExportacionMetrados.Core.Metrado
             return n;
         }
 
-        /// <summary>Clasifica un elemento como CONCRETO, ACERO ESTRUCTURAL, MADERA u OTRO.</summary>
+        /// <summary>
+        /// Clasifica un elemento como CONCRETO, ACERO ESTRUCTURAL, MADERA u OTRO, en este orden:
+        /// tipo de material estructural de la familia; materiales asignados al elemento o a
+        /// su tipo; nombre de la familia o del tipo; material por defecto de la categoría.
+        /// Sin ningún dato, losas, muros y cimentaciones se asumen de concreto; vigas y
+        /// columnas quedan como OTRO para no colarse en el metrado de concreto.
+        /// </summary>
         public static string Clasificar(Document doc, Element e)
         {
             // 1. Tipo de material estructural de la familia (el más fiable).
@@ -285,12 +303,16 @@ namespace ExportacionMetrados.Core.Metrado
                 catch { }
             }
 
-            // 2. Materiales del elemento (losas y muros compuestos, o familias genéricas).
-            Material matEstructural = null;
-            try { matEstructural = CalculadorMetrado.MaterialEstructuralDe(doc, e); } catch { }
-
+            // 2. Materiales asignados al elemento o a su tipo (losas y muros compuestos,
+            //    familias genéricas). No el material por defecto de la categoría: ese no
+            //    dice nada del elemento y haría "de concreto" a cualquier perfil sin material.
             var materiales = new List<Material>();
-            if (matEstructural != null) materiales.Add(matEstructural);
+            try
+            {
+                Material asignado = CalculadorMetrado.MaterialEstructuralAsignado(doc, e);
+                if (asignado != null) materiales.Add(asignado);
+            }
+            catch { }
             try
             {
                 foreach (ElementId id in e.GetMaterialIds(false))
@@ -300,17 +322,68 @@ namespace ExportacionMetrados.Core.Metrado
             }
             catch { }
 
-            if (materiales.Any(m => CalculadorMetrado.MaterialEsConcreto(doc, m))) return ValorConcreto;
-            if (materiales.Any(EsMaterialMetalico)) return ValorAceroEstructural;
-            if (materiales.Any(EsMaterialMadera)) return ValorMadera;
+            string porMaterial = ClasificarPorMateriales(doc, materiales);
+            if (porMaterial != null) return porMaterial;
 
-            // 3. Nombre de la familia o del tipo (perfiles importados de IFC, etc.).
+            // 3. Nombre de la familia o del tipo. Los perfiles (W12X26, HSS, L3X3...) y las
+            //    piezas de conexión importados de IFC traen materiales genéricos
+            //    ("Material IFC (r-g-b)") que no dicen nada, pero el nombre sí.
+            bool categoriaMetalica = EsCategoriaMetalica(e);
             string nombre = (NombreFamilia(doc, e) + " " + e.Name).ToLowerInvariant();
             if (ContienePista(nombre, PistasAcero)) return ValorAceroEstructural;
+            if (categoriaMetalica && ContienePista(nombre, PistasPiezasMetalicas)) return ValorAceroEstructural;
             if (nombre.Contains("madera") || nombre.Contains("wood") || nombre.Contains("timber")) return ValorMadera;
             if (nombre.Contains("concreto") || nombre.Contains("hormig") || nombre.Contains("concrete")) return ValorConcreto;
 
-            return ValorOtro;
+            // 4. Material por defecto de la categoría (elementos "<Por categoría>").
+            try
+            {
+                Material deCategoria = e.Category?.Material;
+                if (deCategoria != null)
+                {
+                    string porCategoria = ClasificarPorMateriales(doc, new List<Material> { deCategoria });
+                    if (porCategoria != null) return porCategoria;
+                }
+            }
+            catch { }
+
+            // 5. Sin ningún dato útil (sin materiales o solo genéricos): losas, muros y
+            //    cimentaciones se asumen de concreto, igual que hace el resumen calculado;
+            //    vigas y columnas, que pueden ser metálicas, quedan como OTRO. Con un
+            //    material real que no es concreto, acero ni madera (acabados...), OTRO.
+            bool sinInformacion = materiales.Count == 0 || materiales.All(EsMaterialGenerico);
+            return sinInformacion && !categoriaMetalica ? ValorConcreto : ValorOtro;
+        }
+
+        /// <summary>CONCRETO, ACERO ESTRUCTURAL o MADERA según los materiales; null si ninguno lo indica.</summary>
+        private static string ClasificarPorMateriales(Document doc, List<Material> materiales)
+        {
+            if (materiales.Any(m => CalculadorMetrado.MaterialEsConcreto(doc, m))) return ValorConcreto;
+            if (materiales.Any(EsMaterialMetalico)) return ValorAceroEstructural;
+            if (materiales.Any(EsMaterialMadera)) return ValorMadera;
+            return null;
+        }
+
+        /// <summary>True si el elemento es una viga (armazón estructural) o un pilar estructural.</summary>
+        private static bool EsCategoriaMetalica(Element e)
+        {
+            ElementId id = e.Category?.Id;
+            if (id == null) return false;
+            return id == new ElementId(BuiltInCategory.OST_StructuralFraming) ||
+                   id == new ElementId(BuiltInCategory.OST_StructuralColumns);
+        }
+
+        /// <summary>
+        /// Materiales que no aportan información: los "Material IFC (r-g-b)" que crea la
+        /// importación de IFC a partir del color y los genéricos o por categoría de Revit.
+        /// </summary>
+        public static bool EsMaterialGenerico(Material m)
+        {
+            string n = (m.Name ?? string.Empty).Trim().ToLowerInvariant();
+            if (n.Length == 0 || n.StartsWith("<")) return true;
+            if (n.Contains("ifc")) return true;
+            return n == "default" || n == "por defecto" || n == "predeterminado" ||
+                   n == "generic" || n == "genérico" || n == "generico";
         }
 
         private static bool EsMaterialMetalico(Material m)
