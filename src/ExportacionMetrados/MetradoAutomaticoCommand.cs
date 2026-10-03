@@ -18,6 +18,14 @@ namespace ExportacionMetrados
     [Regeneration(RegenerationOption.Manual)]
     public class MetradoAutomaticoCommand : IExternalCommand
     {
+        /// <summary>Contadores que el metrado escribe en el modelo, para el resumen final.</summary>
+        private sealed class Contadores
+        {
+            public int Subproyectos, Clasificados, MaterialesRespetados, Particionados, ParticionesArba;
+            public int ElementosRefuerzo, ElementosGrupo, Miscelaneos, Pesados, PerfilesPesados, PesosRespetados;
+            public bool ParametrosOk;
+        }
+
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
             UIDocument uidoc = commandData.Application.ActiveUIDocument;
@@ -41,6 +49,7 @@ namespace ExportacionMetrados
 
                 OpcionesMetrado opciones = ventana.Opciones;
                 var advertencias = new List<string>();
+                var c = new Contadores();
 
                 // 1. Tablas de planificación en Revit (requiere transacción).
                 List<ViewSchedule> tablas;
@@ -51,55 +60,61 @@ namespace ExportacionMetrados
                 advertencias.AddRange(resultado.Advertencias);
 
                 // 0b. Modelos compartidos: reservar los subproyectos antes de escribir (fuera de la transacción).
-                int subproyectos = opciones.ReservarSubproyectos
+                c.Subproyectos = opciones.ReservarSubproyectos
                     ? GestorSubproyectos.Reservar(doc, uidoc.ActiveView, opciones, advertencias)
                     : 0;
 
-                int clasificados = 0, particionados = 0, elementosRefuerzo = 0, elementosGrupo = 0, pesados = 0, perfilesPesados = 0;
                 using (var t = new Transaction(doc, "Metrado automático"))
                 {
                     t.Start();
 
-                    // 1a. Parámetro "Metrado - Material" y clasificación concreto / metálico.
-                    var categoriasSeleccionadas = opciones.Categorias.Where(c => c.Seleccionada).ToList();
+                    // 1. Parámetros compartidos del contrato ARBA-comun (los ocho, con sus categorías):
+                    //    si el proyecto tenía homónimos manuales se migran conservando los valores (avisa).
+                    c.ParametrosOk = ClasificadorElementos.AsegurarParametrosContrato(doc, advertencias);
+                    doc.Regenerate();
+
+                    // 1a. Clasificación concreto / metálico en "Metrado - Material".
+                    var categoriasSeleccionadas = opciones.Categorias.Where(x => x.Seleccionada).ToList();
                     // "Conexiones y anclajes" recoge por nombre piezas de cualquier categoría metálica:
                     // si está marcado, esas categorías también se clasifican y reciben el parámetro.
-                    bool conexiones = categoriasSeleccionadas.Any(c => c.EsConexiones);
+                    bool conexiones = categoriasSeleccionadas.Any(x => x.EsConexiones);
                     var categoriasBic = categoriasSeleccionadas
-                        .Concat(conexiones ? opciones.Categorias.Where(c => c.PuedeSerMetalica) : Enumerable.Empty<CategoriaMetrado>())
-                        .SelectMany(c => c.Categorias).Distinct().ToList();
-                    if (ClasificadorElementos.AsegurarParametroMaterial(doc, categoriasBic, advertencias))
+                        .Concat(conexiones ? opciones.Categorias.Where(x => x.PuedeSerMetalica) : Enumerable.Empty<CategoriaMetrado>())
+                        .SelectMany(x => x.Categorias).Distinct().ToList();
+                    if (ClasificadorElementos.IdParametroMaterial(doc) != null)
                     {
-                        doc.Regenerate();
-                        clasificados = ClasificadorElementos.RellenarMaterial(doc, categoriasBic, opciones.ConservarClasificacionMaterial, advertencias);
+                        c.Clasificados = ClasificadorElementos.RellenarMaterial(doc, categoriasBic, opciones.ConservarClasificacionMaterial,
+                            advertencias, out c.MaterialesRespetados);
                     }
 
-                    // 1b. Partición del refuerzo según la categoría del anfitrión.
+                    // 1b. Partición del refuerzo sin origen ARBA: "CATEGORIA - MAN-marca" + ARBA - Origen = MANUAL.
                     if (opciones.IncluirAcero && opciones.RellenarParticiones)
                     {
-                        particionados = ClasificadorElementos.AsignarParticion(doc, ClasificadorElementos.TodoElRefuerzo(doc),
-                            opciones.Categorias, opciones.SobrescribirParticiones, null, advertencias);
+                        c.Particionados = ClasificadorElementos.AsignarParticion(doc, ClasificadorElementos.TodoElRefuerzo(doc),
+                            opciones.SobrescribirParticiones, null, advertencias, out c.ParticionesArba);
                     }
 
                     // 1b'. "Metrado - Elemento": en cada refuerzo el grupo de su anfitrión real (base de
                     //      los filtros y tablas de acero por elemento; no depende de las particiones) y en
-                    //      cada elemento su propio grupo (VIGAS, ..., OTROS; filtra la tabla de "Otros").
-                    if (ClasificadorElementos.AsegurarParametroElemento(doc, categoriasBic, advertencias))
+                    //      cada elemento su propio grupo (VIGAS, ..., OTROS; MISCELANEOS si tiene partida).
+                    if (ClasificadorElementos.IdParametroElementoRefuerzo(doc) != null)
                     {
-                        doc.Regenerate();
-                        elementosRefuerzo = ClasificadorElementos.RellenarElementoRefuerzo(doc, ClasificadorElementos.TodoElRefuerzo(doc),
+                        c.ElementosRefuerzo = ClasificadorElementos.RellenarElementoRefuerzo(doc, ClasificadorElementos.TodoElRefuerzo(doc),
                             opciones.Categorias, advertencias);
-                        elementosGrupo = ClasificadorElementos.RellenarElementoEnElementos(doc, categoriasBic, opciones.Categorias, advertencias);
+                        c.ElementosGrupo = ClasificadorElementos.RellenarElementoEnElementos(doc, categoriasBic, opciones.Categorias,
+                            advertencias, out c.Miscelaneos);
                     }
 
                     // 1c. Peso en kg: armaduras (longitud total × kg/m) y perfiles metálicos
-                    //     (longitud × área de sección × densidad del acero al carbono).
+                    //     (longitud × área de sección × densidad del acero al carbono). Los pesos
+                    //     escritos por un add-in ARBA (rejillas, ángulos) se respetan.
                     bool necesitaPeso = opciones.IncluirAcero || opciones.TablasAceroEstructural || resultado.AceroEstructural.Count > 0;
-                    if (necesitaPeso && ClasificadorElementos.AsegurarParametroPeso(doc, advertencias))
+                    if (necesitaPeso && ClasificadorElementos.IdParametroPeso(doc) != null)
                     {
-                        doc.Regenerate();
-                        if (opciones.IncluirAcero) pesados = ClasificadorElementos.RellenarPesos(doc, resultado.Acero, advertencias);
-                        perfilesPesados = ClasificadorElementos.RellenarPesosPerfiles(doc, resultado.AceroEstructural, advertencias);
+                        int respetadosBarras = 0;
+                        if (opciones.IncluirAcero) c.Pesados = ClasificadorElementos.RellenarPesos(doc, resultado.Acero, advertencias, out respetadosBarras);
+                        c.PerfilesPesados = ClasificadorElementos.RellenarPesosPerfiles(doc, resultado.AceroEstructural, advertencias, out int respetadosPerfiles);
+                        c.PesosRespetados = respetadosBarras + respetadosPerfiles;
                     }
 
                     // 1d. Tablas.
@@ -131,8 +146,7 @@ namespace ExportacionMetrados
                     catch (Exception) { /* no es crítico */ }
                 }
 
-                MostrarResumen(generador, filtros, tablas, resultado, opciones, advertencias, subproyectos, clasificados, particionados,
-                    elementosRefuerzo, elementosGrupo, pesados, perfilesPesados);
+                MostrarResumen(generador, filtros, tablas, resultado, opciones, advertencias, c);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -152,30 +166,41 @@ namespace ExportacionMetrados
         }
 
         private static void MostrarResumen(GeneradorTablasRevit generador, GeneradorFiltrosVista filtros, List<ViewSchedule> tablas,
-            ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias, int subproyectos, int clasificados,
-            int particionados, int elementosRefuerzo, int elementosGrupo, int pesados, int perfilesPesados)
+            ResultadoMetrado resultado, OpcionesMetrado opciones, List<string> advertencias, Contadores c)
         {
-            double m3 = resultado.Concreto.Sum(c => c.VolumenM3);
+            double m3 = resultado.Concreto.Sum(x => x.VolumenM3);
             double kg = resultado.Acero.Sum(a => a.PesoKg);
-            double kgPerfiles = resultado.AceroEstructural.Sum(a => a.PesoKg);
+            double kgPerfiles = resultado.AceroEstructural.Where(a => !a.EsMiscelaneo).Sum(a => a.PesoKg);
+            var miscelaneos = resultado.AceroEstructural.Where(a => a.EsMiscelaneo).ToList();
+            int miscelaneosEnModelo = Math.Max(c.Miscelaneos, miscelaneos.Count);
 
             string contenido =
-                (subproyectos > 0 ? $"Subproyectos reservados (modelo compartido): {subproyectos}\n" : string.Empty) +
+                $"Contrato ARBA-comun: {ClasificadorElementos.VersionContrato}" +
+                (c.ParametrosOk ? string.Empty : " (no se pudieron asegurar todos sus parámetros; ver advertencias)") + "\n" +
+                (c.Subproyectos > 0 ? $"Subproyectos reservados (modelo compartido): {c.Subproyectos}\n" : string.Empty) +
                 $"Tablas creadas en Revit: {generador.TablasCreadas.Count}\n" +
                 $"Tablas existentes reutilizadas: {generador.TablasReutilizadas.Count}\n" +
-                $"Elementos clasificados (Metrado - Material): {clasificados}\n" +
-                $"Refuerzos con partición asignada: {particionados}\n" +
-                $"Refuerzos con elemento anfitrión (Metrado - Elemento): {elementosRefuerzo}\n" +
-                $"Elementos con grupo de metrado (Metrado - Elemento): {elementosGrupo}\n" +
-                $"Refuerzos con peso actualizado: {pesados}\n" +
-                $"Perfiles metálicos con peso actualizado: {perfilesPesados}\n" +
+                $"Elementos clasificados (Metrado - Material): {c.Clasificados}" +
+                (c.MaterialesRespetados > 0 ? $" (respetados de add-ins ARBA: {c.MaterialesRespetados})" : string.Empty) + "\n" +
+                $"Refuerzos con partición asignada (CATEGORIA - MAN-marca): {c.Particionados}\n" +
+                $"Particiones de add-ins ARBA respetadas: {c.ParticionesArba}\n" +
+                $"Refuerzos con elemento anfitrión (Metrado - Elemento): {c.ElementosRefuerzo}\n" +
+                $"Elementos con grupo de metrado (Metrado - Elemento): {c.ElementosGrupo}\n" +
+                $"Misceláneos (con Metrado - Partida): {miscelaneosEnModelo}\n" +
+                $"Refuerzos con peso actualizado: {c.Pesados}\n" +
+                $"Perfiles y piezas metálicas con peso actualizado: {c.PerfilesPesados}\n" +
+                $"Pesos escritos por add-ins ARBA respetados: {c.PesosRespetados}\n" +
                 (filtros != null
                     ? $"Filtros de vista por colores: {filtros.FiltrosCreados.Count} creados, {filtros.FiltrosReutilizados.Count} actualizados" +
                       (filtros.VistaAplicada != null ? $", aplicados a la vista \"{filtros.VistaAplicada}\"" : string.Empty) + "\n"
                     : string.Empty) +
                 "\n" +
                 $"Concreto: {resultado.Concreto.Count} elementos, {m3:N3} m³\n" +
-                $"Acero estructural: {resultado.AceroEstructural.Count} perfiles, {kgPerfiles:N2} kg\n" +
+                $"Acero estructural: {resultado.AceroEstructural.Count - miscelaneos.Count} perfiles, {kgPerfiles:N2} kg\n" +
+                (miscelaneos.Count > 0
+                    ? $"Misceláneos: {miscelaneos.Count} piezas, {miscelaneos.Sum(a => a.PesoKg):N2} kg, {miscelaneos.Sum(a => a.Pernos)} pernos, " +
+                      $"{miscelaneos.Select(a => a.Partida).Distinct().Count()} partida(s)\n"
+                    : string.Empty) +
                 $"Acero de refuerzo: {resultado.Acero.Count} conjuntos de barras, {kg:N2} kg\n";
 
             if (opciones.ExportarExcel)

@@ -15,35 +15,52 @@ Plugin para Autodesk Revit, escrito en C#, que exporta las **tablas de planifica
   directamente el modelo, sin necesitar tablas de planificación.
 - Filtros de vista por colores (opcionales) para comprobar visualmente qué elementos entran en cada tabla:
   concreto, acero estructural y refuerzo por partición, cada uno con su color, aplicados a la vista activa.
+- Integrado con el **contrato ARBA-comun** (`external/ARBA-comun`, versión 1.0.0): comparte con los add-ins de
+  armado ARBA la pestaña **ARBA** de la cinta, los ocho parámetros compartidos con GUID fijo (`ARBA - Origen`,
+  `ARBA - Código`, `ARBA - Anfitrión`, `Metrado - Partida`, `Metrado - Material`, `Metrado - Peso (kg)`,
+  `Metrado - Pernos (und)`, `Metrado - Elemento`), la gramática de la partición del acero
+  (`CATEGORIA - PREFIJO-marca[-codigo]`), la tabla de **misceláneos** por partida (rejillas, ángulos) y el botón
+  **Migrar particiones y origen** para modelos armados con versiones anteriores. Ver
+  [`external/ARBA-comun/CONTRATO.md`](external/ARBA-comun/CONTRATO.md).
 - Compatible con Revit 2021 a 2024 (.NET Framework 4.8), 2025 y 2026 (.NET 8) y 2027+ (.NET 10).
 
 ## Estructura
 
 ```
 ExportacionMetrados.sln
+NOTAS-ARBA-COMUN.md                Lo que el contrato ARBA-comun no cubre o conviene revisar (visto al integrarlo)
+external/ARBA-comun/               Submódulo git: código común y contrato ARBA (parámetros, partición, cinta)
 src/ExportacionMetrados/
-├── App.cs                         Crea la pestaña "Metrados" y el botón en la cinta
+├── App.cs                         Añade los cuatro botones al panel "Metrados" de la pestaña común "ARBA"
 ├── ExportarMetradosCommand.cs     Comando 1: exporta las tablas de planificación elegidas
 ├── MetradoAutomaticoCommand.cs    Comando 2: metrado automático de concreto y acero
+├── AsignarParticionCommand.cs     Comando 3: partición del acero no creado por ARBA ("VIGAS - MAN-V1")
+├── MigrarParticionesCommand.cs    Comando 4: migra particiones antiguas y origen al contrato (código común)
 ├── ExportacionMetrados.addin      Manifiesto que Revit lee para cargar el plugin
 ├── Core/
 │   ├── LectorTablas.cs            Lee las tablas de Revit (encabezados y cuerpo)
 │   ├── ExportadorExcel.cs         Escribe el .xlsx con ClosedXML
 │   ├── OpcionesExportacion.cs     Opciones y resultado de la exportación
 │   └── Metrado/
-│       ├── CalculadorMetrado.cs   Recorre el modelo: volúmenes de concreto, peso de perfiles y barras de acero
-│       ├── ClasificadorElementos.cs Parámetros "Metrado - Material" y "Metrado - Peso (kg)", particiones
+│       ├── CalculadorMetrado.cs   Recorre el modelo: volúmenes de concreto, peso de perfiles, misceláneos y barras
+│       ├── ClasificadorElementos.cs Parámetros del contrato (Material, Peso, Elemento...), grupos, particiones MAN
 │       ├── GeneradorTablasRevit.cs Crea las tablas de planificación de metrado en el proyecto
 │       ├── GeneradorFiltrosVista.cs Filtros de vista por colores para comprobar el metrado
 │       ├── GestorSubproyectos.cs  Reserva de subproyectos en modelos compartidos
 │       ├── ExportadorMetrado.cs   Escribe las hojas Resumen, Concreto, Acero estructural, Acero y detalle
-│       └── ModelosMetrado.cs      Opciones, categorías y resultados del metrado
+│       └── ModelosMetrado.cs      Opciones, grupos (incluido Misceláneos) y resultados del metrado
 ├── UI/
 │   ├── SeleccionTablasWindow.xaml Ventana de selección de tablas
 │   ├── MetradoAutomaticoWindow.xaml Ventana de opciones del metrado automático
+│   ├── AsignarParticionWindow.xaml Ventana de "Asignar partición"
 │   └── TablaItem.cs               Modelo de cada fila de la lista
-└── Resources/                     Iconos del botón
+└── Resources/                     Iconos de los botones
 ```
+
+El código común se compila **como fuente** dentro del ensamblado del plugin (`Arba.Comun.props`, clases `internal`
+en el namespace `Arba.Comun`), nunca como DLL compartida: Revit carga todos los add-ins en el mismo proceso y dos
+versiones de una misma DLL chocarían. No se modifica nada dentro de `external/ARBA-comun`; lo que falte se anota en
+`NOTAS-ARBA-COMUN.md`.
 
 ## Requisitos
 
@@ -53,6 +70,16 @@ src/ExportacionMetrados/
   paquete de destino de .NET Framework 4.8 que instala Visual Studio 2022.
 
 ## Compilación e instalación
+
+El repositorio incluye el código común ARBA-comun como **submódulo git**. Clónelo con los submódulos:
+
+```powershell
+git clone --recurse-submodules https://github.com/Andy-rba30/Exportacion-metrados-excel
+# o, si ya lo tenía clonado sin submódulos:
+git submodule update --init
+```
+
+Para subir de versión del contrato: `git -C external/ARBA-comun checkout vX.Y.Z` y commit del puntero.
 
 Desde una terminal en la raíz del repositorio:
 
@@ -82,6 +109,10 @@ Si Revit está en otra ruta, pase la propiedad `RevitInstallDir`:
 dotnet build -c Release -p:RevitVersion=2027 -p:RevitInstallDir="D:\Autodesk\Revit 2027"
 ```
 
+Si no encuentra `RevitAPI.dll` (otro equipo, Linux, integración continua), toma la API de los paquetes NuGet
+`Nice3point.Revit.Api.RevitAPI` / `RevitAPIUI` de esa versión (los mismos que usa ARBA-comun para comprobar su
+compilación); se puede forzar con `-p:RevitApiDesdeNuGet=true`. Esos ensamblados no se copian a la salida.
+
 Al terminar la compilación el plugin se copia automáticamente a la carpeta de add-ins del usuario:
 
 ```
@@ -102,9 +133,10 @@ Si prefiere no usar la copia automática, copie `ExportacionMetrados.addin` a
 ## Uso
 
 1. Abra el proyecto en Revit.
-2. Vaya a la pestaña **Metrados**. Hay dos botones: **Exportar a Excel** (exporta tablas de planificación
-   ya existentes) y **Metrado automático** (crea las tablas de metrado en Revit y opcionalmente las exporta,
-   ver más abajo). Pulse **Exportar a Excel**.
+2. Vaya a la pestaña **ARBA** (la comparten todos los add-ins ARBA), panel **Metrados**. Hay cuatro botones:
+   **Exportar a Excel** (exporta tablas de planificación ya existentes), **Metrado automático** (crea las tablas
+   de metrado en Revit y opcionalmente las exporta, ver más abajo), **Asignar partición** y **Migrar particiones
+   y origen** (ver sus apartados). Pulse **Exportar a Excel**.
 3. Marque las tablas que desea exportar (si la vista activa es una tabla, aparece marcada).
    Puede filtrar por nombre o categoría y usar **Todas** / **Ninguna**.
 4. Ajuste las opciones:
@@ -130,8 +162,9 @@ función aparte para tablas que ya existen en el proyecto.)
 | `Metrado concreto - Vigas` / `Losas` / `Cimentaciones` | Elemento (familia y tipo), Material, Cantidad, Longitud o Área, Espesor, Volumen. Solo elementos con material de concreto. | Por tipo; total general. **Sin niveles** (una viga puede cruzar varios, las losas se metran por tipo en todo el edificio y las cimentaciones comparten el nivel de fundación). |
 | `Metrado concreto - Columnas` / `Muros` | Nivel, Elemento, Material, Cantidad, Longitud o Área, Espesor, Volumen | Por nivel (encabezado y pie con totales), luego tipo; total general |
 | `Metrado acero estructural - <elemento>` | Elementos cuyo material **no** es concreto (perfiles metálicos): Elemento, Material, Cantidad, Longitud, Área de sección, **Peso (kg)**. Los perfiles no se metran por volumen sino por peso. Solo se crea si existen. `Metrado acero estructural - Conexiones y anclajes` y `... - Otros` son tablas de varias categorías filtradas por "Metrado - Elemento" (`CONEXIONES` / `OTROS`): Categoría, Elemento, Cantidad, Peso (kg) = volumen × densidad. Toda tabla de elementos filtra además por su grupo en "Metrado - Elemento", así los pernos que un IFC trae como vigas no salen en la tabla de vigas. | Igual; las de varias categorías, por categoría de Revit y luego tipo |
-| `Metrado acero - <elemento>` | Refuerzo cuyo anfitrión es de ese tipo: filtra por el parámetro **"Metrado - Elemento"** (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`), que el plugin escribe en cada armadura según su anfitrión real; la partición puede tener cualquier texto. Columnas: Partición, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario, Peso (kg) | Por partición (encabezado y pie con totales), luego tipo de barra; total general |
-| `Metrado acero - General` | Todo el refuerzo del modelo: Elemento (tipo de anfitrión), Partición y las mismas columnas | Por elemento (encabezado y pie con totales), luego partición, luego tipo de barra; total general |
+| `Metrado acero estructural - Misceláneos` | **Contrato ARBA**: elementos con **"Metrado - Partida"** (rejillas, ángulos y otras piezas que un add-in ARBA o el usuario metran por partida), de cualquier categoría. Tabla de varias categorías filtrada por "Metrado - Elemento" = `MISCELANEOS`: Partida, Categoría, Elemento, `ARBA - Código`, Cantidad, **Peso (kg)** y **Pernos (und)** con totales. El peso que escribió su add-in se respeta; si no lo hay, volumen × densidad. Estas piezas **no** aparecen en Vigas, Conexiones ni Otros. | Por partida (encabezado y pie con totales), luego categoría de Revit y tipo; total general |
+| `Metrado acero - <elemento>` | Refuerzo cuyo anfitrión es de ese tipo: filtra por el parámetro **"Metrado - Elemento"** (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`), que el plugin escribe en cada armadura según su anfitrión real; la partición puede tener cualquier texto (respaldo del filtro: partición que empieza por `VIGAS - `, la forma del contrato). Columnas: Partición, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario, Peso (kg) | Por partición (encabezado y pie con totales: `CIMIENTOS - ZAP-Z1`, `VIGAS - MAN-V1`...), luego tipo de barra; total general |
+| `Metrado acero - General` | Todo el refuerzo del modelo: Elemento (tipo de anfitrión), Partición, **`ARBA - Código`** (capa o familia del add-in que armó: `inferior`, `estribo`, `F1`...) y las mismas columnas | Por elemento (encabezado y pie con totales), luego partición, luego tipo de barra; total general |
 
 - Las tablas no están desglosadas por elemento (una fila por tipo). Si quiere ver cada elemento, active
   "Desglosar cada ejemplar" en la tabla.
@@ -152,12 +185,31 @@ función aparte para tablas que ya existen en el proyecto.)
   crea `Metrado concreto - Otros - <categoría>` por cada una, porque las tablas de varias categorías de
   Revit no exponen el volumen. Sin otro dato, las conexiones estructurales se clasifican como `ACERO
   ESTRUCTURAL`; modelos genéricos y cubiertas quedan como `OTRO` y no se metran.
+- **Misceláneos** (contrato ARBA-comun): todo elemento con **"Metrado - Partida"** (por ejemplo las rejillas y
+  ángulos que crea el add-in de bloques con foso: `ESTRUCTURAS METÁLICAS - REJILLAS`, `… - ÁNGULOS`; o una
+  partida escrita a mano) recibe `MISCELANEOS` en "Metrado - Elemento" antes que cualquier otra regla, con lo
+  que sale de las tablas de Vigas / Conexiones / Otros y va a `Metrado acero estructural - Misceláneos`,
+  agrupada por partida y con la suma de kg y de pernos (`Metrado - Pernos (und)`). Si su add-in ya escribió
+  `Metrado - Peso (kg)` (origen ARBA y peso > 0) el plugin **no lo recalcula**, ni en la tabla ni en el Excel,
+  así el peso de rejillas y ángulos no cambia al repetir el metrado. Tiene su propio filtro de vista (lila).
+  Si el grupo "Misceláneos" no está marcado, esas piezas se quedan en su categoría.
+- **Parámetros del contrato ARBA-comun**: los parámetros que escribe el plugin son **parámetros compartidos
+  de ejemplar con GUID fijo**, definidos en [`external/ARBA-comun/CONTRATO.md`](external/ARBA-comun/CONTRATO.md)
+  y creados desde un archivo temporal (el archivo de parámetros compartidos del usuario no cambia). El metrado
+  automático asegura los ocho (`ARBA - Origen`, `ARBA - Código`, `ARBA - Anfitrión`, `Metrado - Partida`,
+  `Metrado - Material`, `Metrado - Peso (kg)`, `Metrado - Pernos (und)`, `Metrado - Elemento`) con las categorías
+  que fija el contrato; aparecen en Gestionar > Parámetros de proyecto, grupo Datos. Los tres que ya creaba el
+  plugin conservan su GUID, así que los modelos ya metrados no necesitan nada. Si el proyecto tenía un parámetro
+  **homónimo manual** (de proyecto no compartido, o compartido con otro GUID), se sustituye por el del contrato
+  copiando los valores de todos los ejemplares y el resumen lo avisa. `Metrado - Material` no se sobrescribe en
+  los elementos creados por un add-in ARBA (ya lo escribió él).
 - **"Metrado - Elemento"**: parámetro de texto que el plugin escribe en cada elemento metrado con su grupo
-  (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`, `CONEXIONES`, `OTROS`) y en cada armadura con el
-  grupo de su anfitrión. Toda tabla de elementos filtra por él, igual que las tablas de acero por elemento
-  y los filtros de vista de acero estructural y de refuerzo.
-- **Separación concreto / metálico**: el plugin crea el parámetro de proyecto **"Metrado - Material"**
-  (texto, de ejemplar) en todas las categorías marcadas, y lo rellena con `CONCRETO`,
+  (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`, `CONEXIONES`, `OTROS`, `MISCELANEOS`) y en cada armadura
+  con el grupo de su anfitrión. Toda tabla de elementos filtra por él, igual que las tablas de acero por
+  elemento y los filtros de vista de acero estructural y de refuerzo. Los add-ins ARBA lo prerrellenan al
+  armar con la categoría de la partición; el plugin lo confirma.
+- **Separación concreto / metálico**: el plugin vincula el parámetro compartido **"Metrado - Material"**
+  (texto, de ejemplar) a las categorías del contrato, y lo rellena con `CONCRETO`,
   `ACERO ESTRUCTURAL`, `MADERA` u `OTRO`. Para clasificar usa, en este orden: el "Material para
   comportamiento del modelo" de la familia; los materiales asignados al elemento o a su tipo; el nombre de
   la familia o tipo (perfiles HSS, W, C, L, IPE... y, en vigas y columnas, piezas de conexión: espárragos,
@@ -178,9 +230,12 @@ función aparte para tablas que ya existen en el proyecto.)
   proyecto filtros de Visibilidad/Gráficos, uno por tipo de elemento, y los aplica a la vista activa con
   color de línea y relleno sólido: `Metrado - Concreto - Vigas / Columnas / Losas / Cimentaciones / Muros`
   (regla: categoría y `Metrado - Material = CONCRETO`), `Metrado - Acero estructural - Vigas / Columnas /
-  Conexiones y anclajes / Otros` (`= ACERO ESTRUCTURAL` y "Metrado - Elemento" = su grupo) y `Metrado - Refuerzo - VIGAS / COLUMNAS / CIMIENTOS / LOSAS / MUROS` (armaduras y
+  Conexiones y anclajes / Otros` (`= ACERO ESTRUCTURAL` y "Metrado - Elemento" = su grupo),
+  `Metrado - Acero estructural - Misceláneos` ("Metrado - Elemento" = `MISCELANEOS`, lila) y
+  `Metrado - Refuerzo - VIGAS / COLUMNAS / CIMIENTOS / LOSAS / MUROS` (armaduras y
   mallas por el parámetro **"Metrado - Elemento"**, que el plugin escribe en cada refuerzo con el tipo de su
-  anfitrión real; así los filtros no dependen de cómo tenga numeradas las particiones). Cada familia usa
+  anfitrión real; así los filtros no dependen de cómo tenga numeradas las particiones; si ese parámetro no
+  existiera, por partición "empieza por `VIGAS - `", la forma del contrato). Cada familia usa
   colores distintos (azules/rojos/verdes el concreto, celeste y magenta los perfiles, naranjas y turquesas
   el refuerzo), así se ve exactamente qué se está metrando y en qué tabla cae. Los filtros quedan en el
   proyecto: en Visibilidad/Gráficos (VV) → Filtros de cualquier vista, quitar la marca **Visibilidad** oculta
@@ -194,20 +249,27 @@ función aparte para tablas que ya existen en el proyecto.)
   refuerzos metrados), para que Revit no muestre el aviso "You are trying to checkout a large number of
   elements". Si un subproyecto lo tiene otro usuario se avisa y Revit reserva los elementos uno a uno.
   Los subproyectos quedan reservados hasta sincronizar con central. Se puede desactivar en la ventana.
-- **Partición del acero**: antes de crear las tablas, el plugin escribe en la partición vacía de cada
-  armadura el nombre de la categoría de su anfitrión (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`).
-  Las particiones que ya tienen texto se respetan salvo que marque "Sobrescribir". Las tablas de acero por
-  elemento **no** filtran por la partición sino por **"Metrado - Elemento"** (tipo de anfitrión real, escrito
-  siempre), así que funcionan aunque las particiones lleven textos propios como `Muro de contención` o
-  `Bloque A`; la partición se muestra como columna y solo sirve de respaldo del filtro si el parámetro no
-  se pudo crear.
-- **Peso del acero**: Revit no permite crear valores calculados desde la API, así que el plugin crea el
-  parámetro de proyecto **"Metrado - Peso (kg)"** en las armaduras, vigas, columnas y "Otros" y lo rellena en cada
-  ejecución. En las armaduras vale `Longitud total × peso por metro` (el peso por metro sale del parámetro
-  del tipo de barra, por defecto `Bar Mass per Unit Length`, o de π·d²/4 × densidad si no existe). Las
-  tablas muestran esa columna con totales. Si modifica armaduras después, vuelva a ejecutar el metrado
-  para actualizar los pesos. El nombre del parámetro de peso por metro y las densidades se configuran en
-  el grupo **Cálculo del peso** de la ventana y se aplican siempre, se exporte o no a Excel.
+- **Partición del acero** (contrato ARBA): antes de crear las tablas, el plugin escribe en la partición vacía
+  de cada armadura **que no creó un add-in ARBA** la forma del contrato `CATEGORIA - MAN-marca`: la categoría
+  de su anfitrión (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`, u `OTROS`), el prefijo `MAN` (manual) y
+  la marca del anfitrión (o su Id si no tiene): `VIGAS - MAN-V1`, `CIMIENTOS - MAN-Z3`; sin anfitrión,
+  `OTROS - MAN-<id>`. Además escribe `ARBA - Origen = MANUAL` y `Metrado - Elemento`. Las particiones que ya
+  tienen texto se respetan salvo que marque "Sobrescribir". Las armaduras **creadas por los add-ins ARBA**
+  (partición `CIMIENTOS - ZAP-Z1`, `VIGAS - VIG-V1`..., las antiguas `ZAP-Z1`, `CC-C1`, `BLQ-FT-01-F1`, o con
+  `ARBA - Origen` distinto de MANUAL) **no se tocan nunca**, ni con "Sobrescribir": se cuentan como
+  "respetadas" en el resumen. Las tablas de acero por elemento **no** filtran por la partición sino por
+  **"Metrado - Elemento"** (tipo de anfitrión real, escrito siempre), así que funcionan aunque las particiones
+  lleven textos propios como `Muro de contención` o `Bloque A`; la partición se muestra como columna y solo
+  sirve de respaldo del filtro ("empieza por `VIGAS - `") si el parámetro no se pudo crear.
+- **Peso del acero**: Revit no permite crear valores calculados desde la API, así que el plugin vincula el
+  parámetro compartido **"Metrado - Peso (kg)"** del contrato a las armaduras, vigas, columnas, conexiones y
+  "Otros" y lo rellena en cada ejecución. En las armaduras vale `Longitud total × peso por metro` (el peso por
+  metro sale del parámetro del tipo de barra, por defecto `Bar Mass per Unit Length`, o de π·d²/4 × densidad si
+  no existe). Las tablas muestran esa columna con totales. Si modifica armaduras después, vuelva a ejecutar el
+  metrado para actualizar los pesos. El nombre del parámetro de peso por metro y las densidades se configuran
+  en el grupo **Cálculo del peso** de la ventana y se aplican siempre, se exporte o no a Excel. Las piezas
+  cuyo peso ya escribió su add-in ARBA (rejillas, ángulos: `ARBA - Origen` relleno y peso > 0) se respetan y se
+  cuentan en el resumen; las armaduras siempre se recalculan, también las que armó un add-in ARBA.
 - **Peso de los perfiles metálicos**: las vigas y columnas clasificadas como `ACERO ESTRUCTURAL` no se
   metran por volumen sino por peso: `Longitud × área de sección × densidad`. La longitud es la **de corte**
   (`Cut Length`: la pieza real, descontados los recortes en los empalmes) en vigas y arriostres, y la
@@ -220,8 +282,9 @@ función aparte para tablas que ya existen en el proyecto.)
   parámetro o, si la categoría no lo expone, el de sus sólidos. El resultado se escribe en
   "Metrado - Peso (kg)" de cada pieza y la tabla `Metrado acero estructural - <elemento>` lo suma.
 - Si ya existe una tabla con el mismo nombre se reutiliza tal cual, salvo que tenga una estructura de una
-  versión anterior (agrupada por nivel cuando ya no toca, o sin el filtro por "Metrado - Material"): esa
-  se crea de nuevo y se avisa en el resumen. La opción "Regenerar" borra y crea de nuevo todas (se pierden
+  versión anterior (agrupada por nivel cuando ya no toca, sin el filtro por "Metrado - Material" o por
+  "Metrado - Elemento", la general sin la columna `ARBA - Código`, la de misceláneos sin partida, peso o
+  pernos): esa se crea de nuevo y se avisa en el resumen. La opción "Regenerar" borra y crea de nuevo todas (se pierden
   columnas añadidas a mano y su colocación en planos). Una tabla abierta como vista activa no se puede
   regenerar: ciérrela y vuelva a ejecutar el metrado.
 
@@ -229,9 +292,9 @@ función aparte para tablas que ya existen en el proyecto.)
 
 | Hoja | Contenido |
 |---|---|
-| Resumen | Concreto (m³), acero (kg) y cuantía (kg/m³) por tipo de elemento, perfiles metálicos (longitud y kg por tipo de elemento) y acero total por diámetro, calculados directamente del modelo. |
-| Una hoja por tabla de Revit | El contenido de cada tabla generada, tal como se ve en Revit (incluidas las columnas que haya añadido a mano). |
-| Concreto - Detalle / Acero estructural - Detalle / Acero - Detalle | Opcional. Una fila por elemento, perfil o conjunto de barras con Id, nivel, tipo, longitudes, área, espesor, volumen, área de sección, densidad y peso. |
+| Resumen | Concreto (m³), acero (kg) y cuantía (kg/m³) por tipo de elemento, perfiles metálicos (longitud y kg por tipo de elemento), bloque **Misceláneos por partida** (kg, pernos, n.º de piezas y cuántas con peso de su add-in) y acero total por diámetro, calculados directamente del modelo. |
+| Una hoja por tabla de Revit | El contenido de cada tabla generada (incluida `Metrado acero estructural - Misceláneos`), tal como se ve en Revit (incluidas las columnas que haya añadido a mano). |
+| Concreto - Detalle / Acero estructural - Detalle / Acero - Detalle | Opcional. Una fila por elemento, perfil o conjunto de barras con Id, nivel, tipo, longitudes, área, espesor, volumen, área de sección, densidad y peso. El detalle de acero estructural añade Partida, Código (ARBA), Pernos y Origen (ARBA). |
 
 **Cómo calcula el resumen** (independiente de las tablas, leyendo el modelo):
 
@@ -261,21 +324,50 @@ función aparte para tablas que ya existen en el proyecto.)
 
 ## Asignar partición (tercer botón)
 
-Escribe el parámetro **Partición** del acero de refuerzo sin pasar por el metrado:
+Escribe el parámetro **Partición** del acero de refuerzo que no creó ningún add-in ARBA, sin pasar por el metrado:
 
 - **A qué**: la selección actual (anfitriones y/o armaduras), elementos elegidos en pantalla, o todo el modelo.
   Si selecciona una viga, se asigna a todas las armaduras alojadas en ella.
-- **Qué texto**: automático según la categoría del anfitrión (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`,
-  `MUROS`) o un texto propio, por ejemplo `VIGA V-101` o `BLOQUE A - COLUMNAS`.
-- Opción para sobrescribir o respetar las particiones que ya tengan texto.
+- **Qué texto**: automático según el contrato ARBA, `CATEGORIA - MAN-marca` (categoría y marca, o Id, del
+  anfitrión: `VIGAS - MAN-V1`, `CIMIENTOS - MAN-Z3`; sin anfitrión, `OTROS - MAN-<id>`), escribiendo además
+  `ARBA - Origen = MANUAL` y `Metrado - Elemento`; o un texto propio, por ejemplo `VIGA V-101` o
+  `BLOQUE A - COLUMNAS` (solo la partición).
+- Opción para sobrescribir o respetar las particiones que ya tengan texto. Las armaduras creadas por los
+  add-ins ARBA (prefijos `ZAP`, `CCO`, `BLQ`, `VIG`, `COL`, `LOS`, `MCO`, con o sin categoría delante, u origen
+  distinto de MANUAL) **no se tocan nunca** y el resumen las cuenta como respetadas. Las `MAN` / MANUAL son
+  del propio plugin y sí se reescriben con "Sobrescribir".
 
-Las tablas de acero y la general se agrupan por este parámetro, así que basta con mantenerlo al día.
+Las tablas de acero y la general se agrupan por este parámetro, así que basta con mantenerlo al día. Los
+parámetros del contrato se crean si faltan.
+
+## Migrar particiones y origen (cuarto botón)
+
+Para modelos armados con versiones de los add-ins ARBA anteriores al contrato. Lo aporta el código común
+(`ArbaMigrateCommandBase`) y migra **sin rearmar**:
+
+- Sin selección, todo el modelo; con selección, los anfitriones elegidos (o los de las armaduras elegidas).
+- Convierte las particiones antiguas a la forma del contrato con la categoría del **anfitrión real**:
+  `ZAP-Z1` → `CIMIENTOS - ZAP-Z1`, `CC-C1` → `MUROS - CCO-C1` (o `CIMIENTOS - CCO-C1`), `BLQ-FT-01-F1` →
+  `CIMIENTOS - BLQ-FT-01-F1`, `LOSA-L1` → `LOSAS - LOS-L1`, `MC-M1` → `MUROS - MCO-M1`.
+- Rellena `ARBA - Origen` (ZAPATAS, CIMIENTOS CORRIDOS, BLOQUES, LOSAS, MUROS DE CONTENCION...), `ARBA - Código`
+  (si la partición lo llevaba: `F1`, `inferior`...) y `Metrado - Elemento`.
+- No toca las particiones de solo categoría (`VIGAS`) ni las desconocidas; no crea ni borra barras; crea los
+  parámetros del contrato si faltan; el número de conjuntos no cambia. Ctrl+Z lo deshace.
+- Muestra un resumen por add-in (revisadas, migradas, ya conformes, sin tocar).
+
+Después de migrar, las tablas `Metrado acero - Vigas / Columnas / Cimentaciones / Losas` agrupan por la nueva
+partición (`CIMIENTOS - ZAP-Z1`...) y `Metrado acero - General` muestra la columna `ARBA - Código`.
 
 ## Notas técnicas
 
 - El comando de exportación se declara con `TransactionMode.ReadOnly`: no modifica el modelo. El metrado
   automático usa una transacción propia ("Metrado automático") solo para crear las tablas; se puede deshacer
   con Ctrl+Z.
+- El resumen del metrado y el pie de la ventana muestran la versión del contrato ARBA-comun con la que se
+  compiló el plugin (`ArbaContract.Version`), más los contadores del contrato: pesos respetados, particiones
+  ARBA respetadas y misceláneos.
+- Lo que el contrato no cubre (o conviene cambiar en él) está en `NOTAS-ARBA-COMUN.md`; el cambio se hace en
+  ARBA-comun con su versión, nunca dentro de `external/ARBA-comun`.
 - Las filas completamente en blanco (separadores entre grupos) se omiten.
 - Si una tabla tiene desactivada la opción "Mostrar encabezados", se usan los encabezados de columna
   definidos en los campos de la tabla.

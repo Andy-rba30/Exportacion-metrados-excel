@@ -10,6 +10,10 @@
       2025-2026 -> net8.0-windows (.NET 8)
       2027+     -> net10.0-windows (.NET 10)
     Si su Revit usa otro runtime, fuércelo: -p:TargetFramework=net8.0-windows
+
+    Código común ARBA-comun (contrato de parámetros, partición, cinta): submódulo git en external/ARBA-comun,
+    compilado como fuente dentro de este ensamblado por Arba.Comun.props (nunca como DLL compartida).
+    Clonar con: git clone &#45;&#45;recurse-submodules ... (o git submodule update &#45;&#45;init)
   -->
 
   <PropertyGroup>
@@ -38,8 +42,20 @@
     <AddinsDir>$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)</AddinsDir>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- Referencias a la API de Revit (no se copian a la salida). -->
+  <!-- Código común ARBA-comun (clases internal en el namespace Arba.Comun, contrato.json enlazado). -->
+  <Import Project="../../external/ARBA-comun/Arba.Comun.props" />
+
+  <PropertyGroup>
+    <!--
+      Sin Revit instalado (otro equipo, Linux, integración continua) la API se toma de los paquetes
+      Nice3point.Revit.Api.* de NuGet, los mismos que usa ARBA-comun para comprobar su compilación.
+      Se puede forzar con -p:RevitApiDesdeNuGet=true. Los ensamblados no se copian a la salida.
+    -->
+    <RevitApiDesdeNuGet Condition="'$(RevitApiDesdeNuGet)' == '' AND !Exists('$(RevitInstallDir)\RevitAPI.dll')">true</RevitApiDesdeNuGet>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(RevitApiDesdeNuGet)' != 'true'">
+    <!-- Referencias a la API de Revit instalada (no se copian a la salida). -->
     <Reference Include="RevitAPI">
       <HintPath>$(RevitInstallDir)\RevitAPI.dll</HintPath>
       <Private>false</Private>
@@ -48,6 +64,11 @@
       <HintPath>$(RevitInstallDir)\RevitAPIUI.dll</HintPath>
       <Private>false</Private>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RevitApiDesdeNuGet)' == 'true'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitVersion).*" ExcludeAssets="runtime" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="$(RevitVersion).*" ExcludeAssets="runtime" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">

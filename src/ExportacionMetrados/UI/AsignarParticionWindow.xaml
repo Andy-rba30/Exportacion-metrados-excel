@@ -30,12 +30,16 @@
 
         <GroupBox Header="Texto de la partición" Padding="8,4" Margin="0,8,0,0">
             <StackPanel>
-                <RadioButton x:Name="RbAutomatica" GroupName="Texto" Content="Según la categoría del anfitrión: VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS" IsChecked="True" />
+                <RadioButton x:Name="RbAutomatica" GroupName="Texto" IsChecked="True">
+                    <TextBlock TextWrapping="Wrap" Text="Según el contrato ARBA: CATEGORIA - MAN-marca del anfitrión (VIGAS - MAN-V1, CIMIENTOS - MAN-Z3...; sin marca, su Id) y &quot;ARBA - Origen&quot; = MANUAL" />
+                </RadioButton>
                 <DockPanel>
                     <RadioButton x:Name="RbPersonalizada" GroupName="Texto" Content="Texto propio:" VerticalAlignment="Center" Checked="RbTexto_Changed" Unchecked="RbTexto_Changed" />
                     <TextBox x:Name="TxtPersonalizada" Margin="8,0,0,0" VerticalContentAlignment="Center" IsEnabled="False" GotFocus="TxtPersonalizada_GotFocus" />
                 </DockPanel>
                 <CheckBox x:Name="ChkSobrescribir" Content="Sobrescribir las particiones que ya tengan texto" IsChecked="True" Margin="0,8,0,0" />
+                <TextBlock TextWrapping="Wrap" Foreground="Gray" Margin="0,4,0,0"
+                           Text="Las armaduras creadas por los add-ins ARBA (particiones ZAP, CCO, BLQ, VIG, COL, LOS, MCO u origen distinto de MANUAL) no se tocan nunca, ni con &quot;Sobrescribir&quot;." />
             </StackPanel>
         </GroupBox>
 
