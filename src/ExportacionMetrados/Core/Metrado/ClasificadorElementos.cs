@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Arba.Comun;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
@@ -169,7 +170,8 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>
         /// Clasifica un elemento como CONCRETO, ACERO ESTRUCTURAL, MADERA u OTRO, en este orden:
         /// tipo de material estructural de la familia; materiales asignados al elemento o a
-        /// su tipo; nombre de la familia o del tipo; material por defecto de la categoría.
+        /// su tipo (por clase, nombre, designación de norma como "A36" o "S355", o activo
+        /// físico); nombre de la familia o del tipo; material por defecto de la categoría.
         /// Sin ningún dato, losas, muros y cimentaciones se asumen de concreto; vigas y
         /// columnas quedan como OTRO para no colarse en el metrado de concreto, y las
         /// conexiones estructurales se asumen de acero.
@@ -332,7 +334,7 @@ namespace ExportacionMetrados.Core.Metrado
         private static string ClasificarPorMateriales(Document doc, List<Material> materiales)
         {
             if (materiales.Any(m => CalculadorMetrado.MaterialEsConcreto(doc, m))) return ValorConcreto;
-            if (materiales.Any(EsMaterialMetalico)) return ValorAceroEstructural;
+            if (materiales.Any(m => EsMaterialMetalico(doc, m))) return ValorAceroEstructural;
             if (materiales.Any(EsMaterialMadera)) return ValorMadera;
             return null;
         }
@@ -350,10 +352,42 @@ namespace ExportacionMetrados.Core.Metrado
                    n == "generic" || n == "genérico" || n == "generico";
         }
 
-        private static bool EsMaterialMetalico(Material m)
+        /// <summary>
+        /// Designaciones de norma del acero estructural en el nombre del material, como
+        /// palabra completa: ASTM (A36, A-36, A36M, A53, A500, A501, A529, A572, A588, A709,
+        /// A913, A992, A1011, A1018), EN 10025 (S235, S275, S355, S420, S460, con o sin
+        /// calidad JR/J0/J2/K2/M/N/ML/NL) y grado ("Gr 50", "Grade 50", "Grado 36"). Los modelos
+        /// exportados de Tekla traen el material así ("A36", "S355JR") sin la palabra "acero"
+        /// ni la clase "Metal", y sin esto se clasificaban como OTRO.
+        /// </summary>
+        private static readonly Regex DesignacionAcero = new Regex(
+            @"(?<![a-z0-9])(?:" +
+            @"a-?(?:36|53|500|501|529|572|588|709|913|992|1011|1018)m?" +
+            @"|s-?(?:235|275|355|420|460)(?:jr|j0|j2|k2|ml|nl|m|n)?" +
+            @"|gr(?:ado|ade)?\.?\s*-?(?:36|42|50|55|60|65)" +
+            @")(?![a-z0-9])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+        /// <summary>
+        /// Material metálico: por la clase o el nombre ("metal", "acero", "steel", "alumin"),
+        /// por una designación de norma en el nombre (<see cref="DesignacionAcero"/>) o porque
+        /// su activo físico estructural es de clase Metal (mismo criterio que usa
+        /// <see cref="CalculadorMetrado.MaterialEsConcreto"/> con el concreto).
+        /// </summary>
+        private static bool EsMaterialMetalico(Document doc, Material m)
         {
             string t = ((m.MaterialClass ?? string.Empty) + " " + (m.Name ?? string.Empty)).ToLowerInvariant();
-            return t.Contains("metal") || t.Contains("acero") || t.Contains("steel") || t.Contains("alumin");
+            if (t.Contains("metal") || t.Contains("acero") || t.Contains("steel") || t.Contains("alumin")) return true;
+            if (DesignacionAcero.IsMatch(m.Name ?? string.Empty)) return true;
+
+            try
+            {
+                var activo = doc.GetElement(m.StructuralAssetId) as PropertySetElement;
+                StructuralAsset sa = activo?.GetStructuralAsset();
+                if (sa != null && sa.StructuralAssetClass == StructuralAssetClass.Metal) return true;
+            }
+            catch { }
+            return false;
         }
 
         private static bool EsMaterialMadera(Material m)
