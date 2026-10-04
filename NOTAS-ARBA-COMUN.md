@@ -74,3 +74,36 @@ Para comprobar la compilación en Linux / CI, el csproj del plugin toma `Nice3po
 esta rama no compilaba por cinco usos de API inexistentes (`FABRIC_PARAM_TOTAL_LENGTH/WIDTH`, `FABRIC_PARAM_SHEET_MASS`,
 `WorksharingUtils.GetCheckoutStatus(doc, WorksetId)`, `CheckoutWorksets` devuelve `ICollection`); se corrigieron en
 esta rama. No afecta a ARBA-comun; se anota para que el patrón de "API desde NuGet" pueda pasar a `INTEGRACION.md` §2.
+
+## 9. Contrato 1.0.4: categoría fija por prefijo y `Metrado - Elemento` según la partición
+
+Submódulo en `v1.0.4`. Lo que cambió en el plugin:
+
+- `ClasificadorElementos.RellenarElementoRefuerzo` ya no escribe siempre el grupo de la categoría del anfitrión:
+  usa `ArbaMetrado.ElementoFor(r, host, grupoDelAnfitrión)`, es decir, la categoría que **declara la partición** (la
+  fija del prefijo, `LOSAS - CCO-12` → `CIMIENTOS`, o la del texto, `MUROS - MCO-M1` → `MUROS`) y, solo si no declara
+  ninguna (texto libre, antigua `MC-M1`, vacía), el grupo del plugin para la categoría del anfitrión. Sin este cambio
+  "Metrado automático" devolvía a `LOSAS` el acero de los cimientos modelados como suelo y deshacía lo que escriben los
+  add-ins de armado y la migración. El caso sin anfitrión sigue siendo `(SIN ANFITRIÓN)`.
+- `AsignarParticion` no cambia: `ArbaPartition.BuildFor(host, Manual)` y `ArbaOrigin.WriteFor` ya aplican la regla
+  (MAN no fija categoría, usa la del anfitrión).
+- `EsParticionProtegida` y `GeneradorFiltrosVista` no deducían la categoría de una armadura con
+  `ArbaPartition.CategoryOf(host)`, así que no se tocaron. Los filtros de refuerzo van por `Metrado - Elemento` y, solo
+  si ese parámetro no existe, por el texto de la partición ("empieza por `CATEGORIA - `").
+- El plugin no tiene proyecto de tests propio; las comprobaciones pedidas
+  (`DeclaredCategory(Parse("LOSAS - CCO-…")) == CIMIENTOS`, `CategoryFor(CimientosCorridos, "LOSAS") == CIMIENTOS`) están
+  en `external/ARBA-comun/tests` (v1.0.4) y pasan (320 OK). Compilado en Linux para Revit 2027 (net10.0-windows) y 2024
+  (net48) con la API desde NuGet.
+
+Incidencias / observaciones para el común:
+
+- **Filtros de vista por partición con particiones 1.0.3 sin migrar.** El respaldo "empieza por `CATEGORIA - `" pone
+  una `LOSAS - CCO-12` todavía sin migrar en el filtro de Losas aunque `Metrado - Elemento` ya diga `CIMIENTOS`. Es
+  coherente con el contrato (la migración corrige el texto) y solo afecta al caso sin `Metrado - Elemento`; se anota
+  por si `INTEGRACION.md` quiere decir "migrar antes de regenerar filtros".
+- **`ElementoFor` con `hostGroup`.** El plugin pasa su grupo de la categoría del anfitrión (p. ej. `CONEXIONES` para
+  las categorías metálicas), que puede no ser una categoría del contrato. `ElementoFor` lo devuelve tal cual
+  (normalizado) cuando la partición no declara categoría; está bien así, pero conviene decirlo en el comentario de
+  `ArbaMetrado.ElementoFor` / `CONTRATO.md` para que nadie espere que valide contra `ArbaPartition.IsCategory`.
+- `PROMPTS/09-Exportacion-metrados-excel-1.0.4.md` nombra `src/ExportacionMetrados.Tests`; ese proyecto no existe en
+  este repo (las pruebas puras viven en el común).

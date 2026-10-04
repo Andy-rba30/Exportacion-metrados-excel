@@ -482,10 +482,12 @@ namespace ExportacionMetrados.Core.Metrado
         }
 
         /// <summary>
-        /// Escribe "Metrado - Elemento" en cada refuerzo con el tipo de su anfitrión
-        /// (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS, CONEXIONES, OTROS). Siempre se
-        /// sobrescribe: es un dato calculado, no del usuario. Devuelve el número de
-        /// refuerzos actualizados.
+        /// Escribe "Metrado - Elemento" en cada refuerzo con la categoría que declara su
+        /// partición (contrato 1.0.4: la fija de su prefijo, ZAP/CCO/BLQ → CIMIENTOS aunque
+        /// el anfitrión sea un suelo, o la del texto) y, si no declara ninguna, el grupo de
+        /// su anfitrión (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS, CONEXIONES, OTROS).
+        /// Siempre se sobrescribe: es un dato calculado, no del usuario. Devuelve el número
+        /// de refuerzos actualizados.
         /// </summary>
         public static int RellenarElementoRefuerzo(Document doc, IEnumerable<Element> refuerzo, IList<CategoriaMetrado> categorias,
             List<string> advertencias)
@@ -502,7 +504,7 @@ namespace ExportacionMetrados.Core.Metrado
                     Element host = doc.GetElement(AnfitrionDe(r));
                     string valor;
                     if (host?.Category == null) valor = "(SIN ANFITRIÓN)";
-                    else valor = CategoriaMetrado.DeCategoria(categorias, host.Category.Id)?.NombreParticion ?? ArbaPartition.CategoryOf(host);
+                    else valor = ArbaMetrado.ElementoFor(r, host, CategoriaMetrado.DeCategoria(categorias, host.Category.Id)?.NombreParticion);
 
                     if (!string.Equals(p.AsString() ?? string.Empty, valor, StringComparison.Ordinal))
                     {
