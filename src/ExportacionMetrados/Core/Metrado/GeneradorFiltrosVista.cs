@@ -20,8 +20,9 @@ namespace ExportacionMetrados.Core.Metrado
     ///                                                 ELEMENTO - " (forma del contrato ARBA)
     /// Los filtros quedan en el proyecto (se pueden usar en cualquier vista desde
     /// Visibilidad/Gráficos) y, si se pasa una vista, se aplican a ella con color de
-    /// línea y relleno sólido. Debe llamarse dentro de una transacción abierta, después
-    /// de rellenar "Metrado - Material", "Metrado - Elemento" y las particiones.
+    /// línea y relleno sólido (<see cref="ElegirVista"/> elige una que los admita). Debe
+    /// llamarse dentro de una transacción abierta, después de rellenar "Metrado - Material",
+    /// "Metrado - Elemento" y las particiones.
     /// </summary>
     public class GeneradorFiltrosVista
     {
@@ -251,15 +252,83 @@ namespace ExportacionMetrados.Core.Metrado
         // Aplicación a la vista
         // ------------------------------------------------------------------
 
+        /// <summary>
+        /// Vista a la que se aplican los filtros: la primera de <paramref name="candidatas"/> (la activa
+        /// primero) que los admita. Si la activa no los admite —una tabla, que es lo habitual al repetir
+        /// el metrado porque al terminar deja abierta la primera tabla; un plano; una vista cuya plantilla
+        /// controla los filtros—, la siguiente, y lo explica en <paramref name="aviso"/>. Null si ninguna.
+        /// </summary>
+        public static View ElegirVista(IEnumerable<View> candidatas, out string aviso)
+        {
+            aviso = null;
+            View activa = null;
+            string motivoActiva = null;
+            foreach (View v in candidatas)
+            {
+                if (v == null) continue;
+                bool admite = AdmiteFiltros(v, out string motivo);
+                if (activa == null)
+                {
+                    activa = v;
+                    motivoActiva = motivo;
+                }
+                if (!admite) continue;
+
+                if (v.Id != activa.Id)
+                {
+                    aviso = $"La vista activa \"{activa.Name}\" {motivoActiva}; los filtros de colores se aplicaron a la vista \"{v.Name}\".";
+                }
+                return v;
+            }
+
+            if (activa != null)
+            {
+                aviso = $"La vista activa \"{activa.Name}\" {motivoActiva} y no hay otra vista abierta que los admita; " +
+                        "los filtros se crearon en el proyecto y puede aplicarlos a cualquier vista desde Visibilidad/Gráficos.";
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// True si se pueden añadir filtros a la vista: admite sustituciones gráficas (no es una tabla,
+        /// un plano ni una plantilla) y su plantilla, si tiene, no controla los filtros. Si no,
+        /// <paramref name="motivo"/> dice por qué.
+        /// </summary>
+        public static bool AdmiteFiltros(View vista, out string motivo)
+        {
+            motivo = null;
+            try
+            {
+                if (vista.IsTemplate || !vista.AreGraphicsOverridesAllowed())
+                {
+                    motivo = "no admite filtros gráficos (por ejemplo, es una tabla o un plano)";
+                    return false;
+                }
+
+                if (vista.ViewTemplateId != ElementId.InvalidElementId && vista.Document.GetElement(vista.ViewTemplateId) is View plantilla)
+                {
+                    var idFiltros = new ElementId(BuiltInParameter.VIS_GRAPHICS_FILTERS);
+                    if (plantilla.GetTemplateParameterIds().Contains(idFiltros) &&
+                        !plantilla.GetNonControlledTemplateParameterIds().Contains(idFiltros))
+                    {
+                        motivo = $"tiene la plantilla de vista \"{plantilla.Name}\", que controla los filtros";
+                        return false;
+                    }
+                }
+                return true;
+            }
+            catch (Exception)
+            {
+                motivo = "no admite filtros gráficos";
+                return false;
+            }
+        }
+
         private void Aplicar(View vista, List<KeyValuePair<ParameterFilterElement, Color>> filtros)
         {
-            bool admite;
-            try { admite = !vista.IsTemplate && vista.AreGraphicsOverridesAllowed(); }
-            catch (Exception) { admite = false; }
-
-            if (!admite)
+            if (!AdmiteFiltros(vista, out string motivo))
             {
-                Advertencias.Add($"La vista activa \"{vista.Name}\" no admite filtros gráficos (por ejemplo una tabla); " +
+                Advertencias.Add($"La vista \"{vista.Name}\" {motivo}; " +
                                  "los filtros se crearon en el proyecto y puede aplicarlos a cualquier vista desde Visibilidad/Gráficos.");
                 return;
             }

@@ -242,10 +242,12 @@ función aparte para tablas que ya existen en el proyecto.)
   esos elementos (por ejemplo, para ver solo el refuerzo de columnas), quitar **Habilitar filtro** deja de
   pintarlos y **Eliminar** los saca de la vista. Para ver el refuerzo coloreado en 3D la vista debe estar en
   Sombreado o Colores coherentes y las barras con "Ver como sólido"; si no, se ven como líneas de color. Si
-  la vista activa es una tabla o tiene una plantilla que controla los filtros, se crean igual pero no se
-  aplican (se avisa). Si ya existen se actualizan, no se duplican.
+  la vista activa no los admite (una tabla, como la que deja abierta el metrado anterior; un plano; una
+  vista cuya plantilla controla los filtros), se aplican a otra vista gráfica abierta (las 3D primero) o a la
+  3D predeterminada `{3D}`, y el resumen dice a cuál; solo si no hay ninguna se crean sin aplicar. Si ya
+  existen se actualizan, no se duplican; si se borraron, se crean de nuevo.
 - **Modelos compartidos (worksharing)**: antes de escribir, el plugin reserva los subproyectos que va a
-  modificar (los estándar de parámetros compartidos, el de la vista activa y los de los elementos y
+  modificar (los estándar de parámetros compartidos, el de la vista de los filtros y los de los elementos y
   refuerzos metrados), para que Revit no muestre el aviso "You are trying to checkout a large number of
   elements". Si un subproyecto lo tiene otro usuario se avisa y Revit reserva los elementos uno a uno.
   Los subproyectos quedan reservados hasta sincronizar con central. Se puede desactivar en la ventana.
@@ -277,7 +279,9 @@ función aparte para tablas que ya existen en el proyecto.)
   (perfiles con sección estructural: W, HSS, IPE, C, L...), de la definición de sección estructural de la
   familia o de un parámetro de área con nombre habitual; como último recurso se usa `Volumen / longitud`.
   La densidad es la del **acero al carbono**, material de los perfiles estructurales: 7850 kg/m³ por
-  defecto, ajustable en la ventana. Las piezas sin longitud ni sección (conexiones, planchas, coberturas
+  defecto, ajustable en la ventana. Los perfiles de las familias de acero de Revit (W, HSS, C...) que ya
+  traen su peso (**Exact Weight** / Peso exacto o, si es 0, **Weight**, grupo Estructural) no se calculan: se
+  usa ese peso. Las piezas sin longitud ni sección (conexiones, planchas, coberturas
   metálicas, o un perfil que no exponga su longitud) se pesan por `Volumen × densidad`, con el volumen del
   parámetro o, si la categoría no lo expone, el de sus sólidos. El resultado se escribe en
   "Metrado - Peso (kg)" de cada pieza y la tabla `Metrado acero estructural - <elemento>` lo suma.
@@ -307,7 +311,8 @@ función aparte para tablas que ya existen en el proyecto.)
   de concreto asignados, o solo genéricos ("Material IFC (r-g-b)", "Por defecto"), se usa el material
   estructural y el parámetro Volumen.
 - Perfiles metálicos: vigas y columnas clasificadas como `ACERO ESTRUCTURAL`. Peso = longitud × área de
-  sección × densidad del acero al carbono (7850 kg/m³ por defecto). No entran en el volumen de concreto.
+  sección × densidad del acero al carbono (7850 kg/m³ por defecto), salvo en los perfiles de Revit que ya
+  traen su peso (`Exact Weight` / `Weight`), donde se usa ese. No entran en el volumen de concreto.
 - Nivel: nivel de referencia (vigas), nivel base (columnas, muros) o el nivel del elemento. Vigas, losas y
   cimentaciones no se agrupan por nivel (ni en Revit ni en las hojas calculadas del Excel), solo por tipo;
   columnas y muros sí.

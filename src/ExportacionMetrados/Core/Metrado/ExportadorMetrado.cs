@@ -424,7 +424,8 @@ namespace ExportacionMetrados.Core.Metrado
         }
 
         private string NotaPesoAceroEstructural() =>
-            $"Perfiles: peso = longitud × área de sección × densidad del acero al carbono ({_opciones.DensidadAceroEstructural:0} kg/m³). " +
+            $"Perfiles: peso = longitud × área de sección × densidad del acero al carbono ({_opciones.DensidadAceroEstructural:0} kg/m³); " +
+            "los de las familias de acero de Revit que ya traen su peso (Exact Weight) usan ese peso. " +
             "Conexiones, planchas y piezas sin longitud: volumen × densidad.";
 
         // ------------------------------------------------------------------
