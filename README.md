@@ -211,8 +211,10 @@ función aparte para tablas que ya existen en el proyecto.)
 - **Separación concreto / metálico**: el plugin vincula el parámetro compartido **"Metrado - Material"**
   (texto, de ejemplar) a las categorías del contrato, y lo rellena con `CONCRETO`,
   `ACERO ESTRUCTURAL`, `MADERA` u `OTRO`. Para clasificar usa, en este orden: el "Material para
-  comportamiento del modelo" de la familia; los materiales asignados al elemento o a su tipo; el nombre de
-  la familia o tipo (perfiles HSS, W, C, L, IPE... y, en vigas y columnas, piezas de conexión: espárragos,
+  comportamiento del modelo" de la familia; los materiales asignados al elemento o a su tipo (por su clase
+  o nombre, por una designación de norma en el nombre, como `A36`, `A572`, `A992`, `S275`, `S355JR`,
+  `Gr 50`, que es como llega el material de los modelos exportados de Tekla, o por su activo físico de
+  clase Metal); el nombre de la familia o tipo (perfiles HSS, W, C, L, IPE... y, en vigas y columnas, piezas de conexión: espárragos,
   anclajes, pernos, planchas); y el material por defecto de la categoría. Sin ningún dato útil, losas,
   muros y cimentaciones se asumen de concreto; conexiones y rigidizadores, de acero; vigas, columnas,
   modelos genéricos y cubiertas quedan como `OTRO`. Los materiales
