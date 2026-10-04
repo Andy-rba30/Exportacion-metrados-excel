@@ -322,11 +322,11 @@ namespace ExportacionMetrados.Core.Metrado
         public double LongitudM { get; set; }
         /// <summary>Área de la sección transversal en cm².</summary>
         public double AreaSeccionCm2 { get; set; }
-        /// <summary>De dónde se obtuvo el área de la sección o el peso (parámetro del tipo, sección de la familia, volumen/longitud, peso escrito por un add-in ARBA).</summary>
+        /// <summary>De dónde se obtuvo el área de la sección o el peso (parámetro del tipo, sección de la familia, volumen/longitud, peso escrito por un add-in ARBA, peso de Revit).</summary>
         public string FuenteArea { get; set; }
         /// <summary>Densidad del acero al carbono usada, en kg/m³.</summary>
         public double DensidadKgM3 { get; set; }
-        /// <summary>Peso en kg = longitud × área de sección × densidad (o volumen × densidad, o el peso escrito por su add-in).</summary>
+        /// <summary>Peso en kg = longitud × área de sección × densidad (o volumen × densidad, el peso escrito por su add-in o el que trae el perfil de Revit).</summary>
         public double PesoKg { get; set; }
         /// <summary>Volumen que informa Revit (m³), solo como referencia.</summary>
         public double VolumenM3 { get; set; }
@@ -345,6 +345,8 @@ namespace ExportacionMetrados.Core.Metrado
         public bool EsMiscelaneo { get; set; }
         /// <summary>True si el peso es el que escribió su add-in ARBA (origen ARBA y peso > 0) y el plugin lo respeta.</summary>
         public bool PesoProtegido { get; set; }
+        /// <summary>True si el peso es el que ya trae el perfil de Revit ("Exact Weight" / "Weight"), sin calcular.</summary>
+        public bool PesoDeRevit { get; set; }
     }
 
     /// <summary>Un conjunto de barras de refuerzo ya medido.</summary>

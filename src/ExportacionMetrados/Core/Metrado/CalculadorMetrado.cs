@@ -352,9 +352,10 @@ namespace ExportacionMetrados.Core.Metrado
         /// Piezas sin longitud ni sección (conexiones, planchas, coberturas, misceláneos, o un
         /// perfil que no expone su longitud): peso = volumen × densidad. Piezas cuyo peso ya
         /// escribió su add-in ARBA (rejillas, ángulos: "ARBA - Origen" relleno y
-        /// "Metrado - Peso (kg)" &gt; 0): ese peso, que el plugin no recalcula. Guarda además
-        /// partida, pernos, código y origen del contrato. Devuelve null (con advertencia) si no
-        /// hay con qué pesarla.
+        /// "Metrado - Peso (kg)" &gt; 0): ese peso, que el plugin no recalcula. Perfiles de las
+        /// familias de acero de Revit, que ya traen su peso ("Exact Weight" / "Weight" &gt; 0): ese
+        /// peso, sin calcular. Guarda además partida, pernos, código y origen del contrato.
+        /// Devuelve null (con advertencia) si no hay con qué pesarla.
         /// </summary>
         private ElementoAceroEstructural MedirPerfilMetalico(Element e, CategoriaMetrado cat, ResultadoMetrado resultado)
         {
@@ -369,12 +370,20 @@ namespace ExportacionMetrados.Core.Metrado
             string fuenteArea;
             double pesoKg;
             bool pesoProtegido = ClasificadorElementos.PesoProtegido(e);
+            double pesoRevit = 0;
 
             if (pesoProtegido)
             {
                 // Peso escrito por el add-in que creó la pieza (contrato ARBA): se respeta.
                 pesoKg = ArbaSharedParams.GetDouble(e, ArbaContract.Peso);
                 fuenteArea = "Peso escrito por el add-in " + ArbaOrigin.OriginOf(e);
+            }
+            else if ((pesoRevit = ObtenerPesoRevit(e, out fuenteArea)) > 0)
+            {
+                // Perfil de una familia de acero de Revit: ya trae su peso, no hace falta calcularlo.
+                // El área de sección solo se lee para el detalle del Excel.
+                pesoKg = pesoRevit;
+                if (longitudM > 0) areaM2 = ObtenerAreaSeccion(e, tipo, out _);
             }
             else if (longitudM > 0)
             {
@@ -430,7 +439,57 @@ namespace ExportacionMetrados.Core.Metrado
                 Origen = ArbaOrigin.OriginOf(e),
                 EsMiscelaneo = cat.EsMiscelaneos,
                 PesoProtegido = pesoProtegido,
+                PesoDeRevit = pesoRevit > 0,
             };
+        }
+
+        /// <summary>
+        /// Peso que Revit ya calcula en los perfiles de sus familias de acero (W, HSS, C...), en kg:
+        /// "Exact Weight" (Peso exacto) y, si es 0, "Weight" (Peso), del grupo Estructural. 0 si el
+        /// elemento no los expone o valen 0 (perfiles de IFC, familias propias): entonces se calcula.
+        /// </summary>
+        private static double ObtenerPesoRevit(Element e, out string fuente)
+        {
+            foreach (BuiltInParameter bip in new[] { BuiltInParameter.STEEL_ELEM_EXACT_WEIGHT, BuiltInParameter.STEEL_ELEM_WEIGHT })
+            {
+                Parameter p = e.get_Parameter(bip);
+                if (p == null || p.StorageType != StorageType.Double || !p.HasValue || p.AsDouble() <= 0) continue;
+
+                double kg = AKilogramosDePeso(p);
+                if (kg > 0)
+                {
+                    fuente = "Peso de Revit (" + p.Definition.Name + ")";
+                    return kg;
+                }
+            }
+            fuente = null;
+            return 0;
+        }
+
+        /// <summary>
+        /// Convierte un parámetro de peso a kg: si es de masa, desde kg internos; si es de fuerza
+        /// (peso en kgf, kN...), a kilogramos fuerza, que valen lo mismo que los kg de masa.
+        /// </summary>
+        private static double AKilogramosDePeso(Parameter p)
+        {
+            try
+            {
+#if REVIT2021
+                ForgeTypeId espec = p.Definition.GetSpecTypeId();
+#else
+                ForgeTypeId espec = p.Definition.GetDataType();
+#endif
+                if (espec != null && !UnitUtils.IsValidUnit(espec, UnitTypeId.Kilograms) &&
+                    UnitUtils.IsValidUnit(espec, UnitTypeId.KilogramsForce))
+                {
+                    return UnitUtils.ConvertFromInternalUnits(p.AsDouble(), UnitTypeId.KilogramsForce);
+                }
+            }
+            catch (Exception)
+            {
+                // Sin información de unidades (o no es una magnitud medible): se asume masa.
+            }
+            return AKilogramos(p.AsDouble());
         }
 
         /// <summary>

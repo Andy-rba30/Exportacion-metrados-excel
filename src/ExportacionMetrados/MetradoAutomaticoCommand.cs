@@ -59,9 +59,19 @@ namespace ExportacionMetrados
                 ResultadoMetrado resultado = new CalculadorMetrado(doc, opciones).Calcular();
                 advertencias.AddRange(resultado.Advertencias);
 
+                // 0a. Vista para los filtros de colores: la activa o, si no los admite (la tabla que dejó
+                //     abierta el metrado anterior, un plano, una plantilla que controla los filtros), otra
+                //     vista gráfica abierta o la 3D predeterminada.
+                View vistaFiltros = null;
+                if (opciones.CrearFiltrosVista)
+                {
+                    vistaFiltros = GeneradorFiltrosVista.ElegirVista(VistasParaFiltros(uidoc), out string aviso);
+                    if (aviso != null) advertencias.Add(aviso);
+                }
+
                 // 0b. Modelos compartidos: reservar los subproyectos antes de escribir (fuera de la transacción).
                 c.Subproyectos = opciones.ReservarSubproyectos
-                    ? GestorSubproyectos.Reservar(doc, uidoc.ActiveView, opciones, advertencias)
+                    ? GestorSubproyectos.Reservar(doc, vistaFiltros ?? uidoc.ActiveView, opciones, advertencias)
                     : 0;
 
                 using (var t = new Transaction(doc, "Metrado automático"))
@@ -125,7 +135,7 @@ namespace ExportacionMetrados
                     if (opciones.CrearFiltrosVista)
                     {
                         filtros = new GeneradorFiltrosVista(doc, opciones);
-                        filtros.Generar(uidoc.ActiveView);
+                        filtros.Generar(vistaFiltros);
                         advertencias.AddRange(filtros.Advertencias);
                     }
                     t.Commit();
@@ -158,6 +168,40 @@ namespace ExportacionMetrados
             }
         }
 
+        /// <summary>
+        /// Vistas en las que se pueden aplicar los filtros, por orden de preferencia: la activa, las
+        /// demás vistas abiertas (las 3D primero) y la 3D predeterminada ("{3D}", o "{3D - usuario}"
+        /// en un modelo compartido), aunque no esté abierta.
+        /// </summary>
+        private static List<View> VistasParaFiltros(UIDocument uidoc)
+        {
+            Document doc = uidoc.Document;
+            var vistas = new List<View> { uidoc.ActiveView };
+
+            var abiertas = new List<View>();
+            try
+            {
+                foreach (UIView uiView in uidoc.GetOpenUIViews())
+                {
+                    if (doc.GetElement(uiView.ViewId) is View v) abiertas.Add(v);
+                }
+            }
+            catch (Exception) { /* sin vistas abiertas: se prueba la 3D predeterminada */ }
+            vistas.AddRange(abiertas.OrderBy(v => v is View3D ? 0 : 1));
+
+            string usuario = string.Empty;
+            try { usuario = doc.Application.Username ?? string.Empty; }
+            catch (Exception) { }
+            var nombres3D = new[] { "{3D}", "{3D - " + usuario + "}" };
+            vistas.AddRange(new FilteredElementCollector(doc)
+                .OfClass(typeof(View3D))
+                .Cast<View3D>()
+                .Where(v => !v.IsTemplate && nombres3D.Contains(v.Name))
+                .OrderBy(v => Array.IndexOf(nombres3D, v.Name)));
+
+            return vistas.Where(v => v != null).GroupBy(v => v.Id).Select(g => g.First()).ToList();
+        }
+
         private static string SugerirNombreArchivo(Document doc)
         {
             string nombre = string.IsNullOrWhiteSpace(doc.Title) ? "Proyecto" : doc.Title;
@@ -173,6 +217,7 @@ namespace ExportacionMetrados
             double kgPerfiles = resultado.AceroEstructural.Where(a => !a.EsMiscelaneo).Sum(a => a.PesoKg);
             var miscelaneos = resultado.AceroEstructural.Where(a => a.EsMiscelaneo).ToList();
             int miscelaneosEnModelo = Math.Max(c.Miscelaneos, miscelaneos.Count);
+            int conPesoRevit = resultado.AceroEstructural.Count(a => !a.EsMiscelaneo && a.PesoDeRevit);
 
             string contenido =
                 $"Contrato ARBA-comun: {ClasificadorElementos.VersionContrato}" +
@@ -196,7 +241,8 @@ namespace ExportacionMetrados
                     : string.Empty) +
                 "\n" +
                 $"Concreto: {resultado.Concreto.Count} elementos, {m3:N3} m³\n" +
-                $"Acero estructural: {resultado.AceroEstructural.Count - miscelaneos.Count} perfiles, {kgPerfiles:N2} kg\n" +
+                $"Acero estructural: {resultado.AceroEstructural.Count - miscelaneos.Count} perfiles, {kgPerfiles:N2} kg" +
+                (conPesoRevit > 0 ? $" ({conPesoRevit} con el peso que ya trae Revit)" : string.Empty) + "\n" +
                 (miscelaneos.Count > 0
                     ? $"Misceláneos: {miscelaneos.Count} piezas, {miscelaneos.Sum(a => a.PesoKg):N2} kg, {miscelaneos.Sum(a => a.Pernos)} pernos, " +
                       $"{miscelaneos.Select(a => a.Partida).Distinct().Count()} partida(s)\n"
