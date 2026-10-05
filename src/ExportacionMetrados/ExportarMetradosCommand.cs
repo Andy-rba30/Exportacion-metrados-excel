@@ -11,9 +11,12 @@ using ExportacionMetrados.UI;
 namespace ExportacionMetrados
 {
     /// <summary>
-    /// Comando que muestra la ventana de selección de tablas y genera el Excel.
+    /// Comando que muestra la ventana de selección de tablas y genera el Excel. No modifica el modelo:
+    /// las tablas se leen dentro de una transacción que se deshace al terminar, porque leer las celdas de
+    /// una tabla desactualizada (p. ej. una de varias categorías recién creada) obliga a Revit a
+    /// regenerarla y en modo solo lectura eso fallaba con "Changes are disabled for the active document".
     /// </summary>
-    [Transaction(TransactionMode.ReadOnly)]
+    [Transaction(TransactionMode.Manual)]
     [Regeneration(RegenerationOption.Manual)]
     public class ExportarMetradosCommand : IExternalCommand
     {
@@ -60,7 +63,25 @@ namespace ExportacionMetrados
                 }
 
                 var exportador = new ExportadorExcel(opciones);
-                ResultadoExportacion resultado = exportador.Exportar(seleccionadas, opciones.RutaArchivo);
+                ResultadoExportacion resultado;
+                using (var t = new Transaction(doc, "Exportar tablas a Excel"))
+                {
+                    t.Start();
+                    foreach (ViewSchedule tabla in seleccionadas)
+                    {
+                        try { tabla.RefreshData(); }
+                        catch (Exception) { /* se lee tal cual está */ }
+                    }
+                    try
+                    {
+                        resultado = exportador.Exportar(seleccionadas, opciones.RutaArchivo);
+                    }
+                    finally
+                    {
+                        // Nada que conservar: solo se leyó.
+                        t.RollBack();
+                    }
+                }
 
                 MostrarResumen(resultado, opciones);
                 return Result.Succeeded;
