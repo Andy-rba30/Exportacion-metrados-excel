@@ -109,9 +109,10 @@ namespace ExportacionMetrados.UI
                 if (r != MessageBoxResult.Yes) return;
             }
 
-            _opciones.IncluirAcero = ChkAcero.IsChecked == true || ChkAceroGeneral.IsChecked == true;
+            _opciones.IncluirAcero = ChkAcero.IsChecked == true || ChkAceroGeneral.IsChecked == true || ChkAceroResumen.IsChecked == true;
             _opciones.TablasAceroPorElemento = ChkAcero.IsChecked == true;
             _opciones.TablaAceroGeneral = ChkAceroGeneral.IsChecked == true;
+            _opciones.TablaAceroResumen = ChkAceroResumen.IsChecked == true;
             _opciones.TablasAceroEstructural = ChkAceroEstructural.IsChecked == true;
             _opciones.TablaConcretoGeneral = ChkConcretoGeneral.IsChecked == true;
             _opciones.TablaAceroEstructuralGeneral = ChkAceroEstructuralGeneral.IsChecked == true;

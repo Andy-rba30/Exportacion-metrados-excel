@@ -18,6 +18,8 @@ namespace ExportacionMetrados.Core.Metrado
     ///                                              varias categorías, agrupada por partida, kg y pernos
     ///   - "Metrado acero - {elemento}"             refuerzo cuyo anfitrión es de esa categoría
     ///   - "Metrado acero - General"                todo el refuerzo, por elemento y partición, con "ARBA - Código"
+    ///   - "Metrado acero - Resumen"                todo el refuerzo por elemento y tipo de barra, con N° barras,
+    ///                                              longitud total y peso: la general compacta, como las de abajo
     ///   - "Metrado concreto - General"             todo el concreto por elemento, categoría, tipo y material, con
     ///                                              volumen (cantidades de materiales de varias categorías)
     ///   - "Metrado acero estructural - General"    todos los elementos metálicos por elemento, categoría y tipo, con peso
@@ -33,6 +35,7 @@ namespace ExportacionMetrados.Core.Metrado
         public const string PrefijoAceroEstructural = "Metrado acero estructural - ";
         public const string PrefijoAcero = "Metrado acero - ";
         public const string NombreAceroGeneral = "Metrado acero - General";
+        public const string NombreAceroResumen = PrefijoAcero + "Resumen";
         public const string NombreConcretoGeneral = PrefijoConcreto + "General";
         public const string NombreAceroEstructuralGeneral = PrefijoAceroEstructural + "General";
         /// <summary>Tabla de misceláneos del contrato ARBA (elementos con "Metrado - Partida").</summary>
@@ -167,6 +170,13 @@ namespace ExportacionMetrados.Core.Metrado
                     ViewSchedule g = CrearOReutilizar(NombreAceroGeneral, () => CrearTablaRefuerzo(null, out _),
                         existente => MotivoTablaRefuerzoDesactualizada(existente, null));
                     if (g != null) tablas.Add(g);
+                }
+
+                // Tabla general compacta del refuerzo, con la forma de las generales de concreto y acero estructural.
+                if (_op.TablaAceroResumen)
+                {
+                    ViewSchedule r = CrearOReutilizar(NombreAceroResumen, CrearTablaAceroResumen, MotivoTablaAceroResumenDesactualizada);
+                    if (r != null) tablas.Add(r);
                 }
             }
 
@@ -924,6 +934,67 @@ namespace ExportacionMetrados.Core.Metrado
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// "Metrado acero - Resumen": todo el refuerzo del modelo en una tabla compacta, con la forma de
+        /// "Metrado concreto - General" y "Metrado acero estructural - General": Elemento (tipo de anfitrión,
+        /// con encabezado y pie con totales) y luego tipo de barra, con Diámetro, N° barras, Longitud total y
+        /// Peso (kg) con totales. Sin partición ni "ARBA - Código": ese detalle está en "Metrado acero - General".
+        /// Los textos propios de "Metrado - Elemento" (ESCALERAS...) salen como grupos propios.
+        /// </summary>
+        private ViewSchedule CrearTablaAceroResumen()
+        {
+            ViewSchedule vs = ViewSchedule.CreateSchedule(_doc, new ElementId(BuiltInCategory.OST_Rebar));
+            ScheduleDefinition def = vs.Definition;
+            IList<SchedulableField> campos = def.GetSchedulableFields();
+
+            ScheduleField elemento = AgregarCompartido(def, campos, "Elemento", ArbaContract.Elemento);
+            ScheduleField tipo = Agregar(def, campos, "Tipo de barra", BuiltInParameter.ELEM_TYPE_PARAM);
+            Agregar(def, campos, "Diámetro", BuiltInParameter.REBAR_BAR_DIAMETER);
+            ScheduleField cantidad = Agregar(def, campos, "N° barras", BuiltInParameter.REBAR_ELEM_QUANTITY_OF_BARS);
+            ScheduleField longTotal = Agregar(def, campos, "Longitud total", BuiltInParameter.REBAR_ELEM_TOTAL_LENGTH);
+            ScheduleField peso = AgregarCompartido(def, campos, "Peso (kg)", ArbaContract.Peso);
+            Totales(cantidad, longTotal, peso);
+
+            if (elemento != null)
+            {
+                def.AddSortGroupField(new ScheduleSortGroupField(elemento.FieldId)
+                {
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
+                });
+            }
+            else
+            {
+                Advertencias.Add($"{NombreAceroResumen}: no se encontró el parámetro \"{ClasificadorElementos.NombreParametroElementoRefuerzo}\"; la tabla no se agrupa por elemento.");
+            }
+            if (tipo != null) def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
+
+            def.IsItemized = false;
+            def.ShowGrandTotal = true;
+            def.ShowGrandTotalTitle = true;
+            def.GrandTotalTitle = "Total acero";
+
+            if (peso == null)
+            {
+                Advertencias.Add($"{NombreAceroResumen}: no se encontró el parámetro \"{ClasificadorElementos.NombreParametroPeso}\"; " +
+                                 "la tabla no incluye la columna de peso.");
+            }
+            return vs;
+        }
+
+        /// <summary>
+        /// Motivo por el que la tabla resumen de acero ya no corresponde a la estructura actual (sin la
+        /// columna "Metrado - Elemento" aunque el parámetro ya existe), o null si sirve.
+        /// </summary>
+        private string MotivoTablaAceroResumenDesactualizada(ViewSchedule tabla)
+        {
+            ElementId idElemento = ClasificadorElementos.IdParametroElementoRefuerzo(_doc);
+            if (idElemento != null && !TieneCampoDeParametro(tabla.Definition, idElemento))
+            {
+                return "sin la columna de elemento (\"" + ClasificadorElementos.NombreParametroElementoRefuerzo + "\")";
+            }
+            return null;
         }
 
         // ------------------------------------------------------------------

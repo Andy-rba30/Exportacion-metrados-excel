@@ -189,6 +189,7 @@ función aparte para tablas que ya existen en el proyecto.)
 | `Metrado acero estructural - Misceláneos` | **Contrato ARBA**: elementos con **"Metrado - Partida"** (rejillas, ángulos y otras piezas que un add-in ARBA o el usuario metran por partida), de cualquier categoría. Tabla de varias categorías filtrada por "Metrado - Elemento" = `MISCELANEOS`: Partida, Categoría, Elemento, `ARBA - Código`, Cantidad, **Peso (kg)** y **Pernos (und)** con totales. El peso que escribió su add-in se respeta; si no lo hay, volumen × densidad. Estas piezas **no** aparecen en Vigas, Conexiones ni Otros. | Por partida (encabezado y pie con totales), luego categoría de Revit y tipo; total general |
 | `Metrado acero - <elemento>` | Refuerzo cuyo anfitrión es de ese tipo: filtra por el parámetro **"Metrado - Elemento"** (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`), que el plugin escribe en cada armadura según su anfitrión real; la partición puede tener cualquier texto (respaldo del filtro: partición que empieza por `VIGAS - `, la forma del contrato). Columnas: Partición, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario, Peso (kg) | Por partición (encabezado y pie con totales: `CIMIENTOS - ZAP-Z1`, `VIGAS - MAN-V1`...), luego tipo de barra; total general |
 | `Metrado acero - General` | Todo el refuerzo del modelo: Elemento (tipo de anfitrión), Partición, **`ARBA - Código`** (capa o familia del add-in que armó: `inferior`, `estribo`, `F1`...) y las mismas columnas | Por elemento (encabezado y pie con totales), luego partición, luego tipo de barra; total general |
+| `Metrado acero - Resumen` | La general **compacta** del refuerzo, con la forma de las generales de concreto y acero estructural: Elemento (tipo de anfitrión), Tipo de barra, Diámetro, N° barras, Longitud total y **Peso (kg)** con totales, sin particiones ni código (opcional, marcada por defecto). Los textos propios de "Metrado - Elemento" (`ESCALERAS`...) salen como grupos propios | Por elemento (encabezado y pie con totales), luego tipo de barra; total general |
 | `Metrado concreto - General` | Todo el concreto del modelo en una sola tabla: Elemento, Categoría, Tipo, Material, Cantidad y **Volumen**. Como una tabla de varias categorías no expone el volumen, es una **tabla de cantidades de materiales** de varias categorías filtrada por "Metrado - Material" = `CONCRETO` (opcional, marcada por defecto) | Por elemento (encabezado y pie con totales), luego categoría, tipo y material; total general |
 | `Metrado acero estructural - General` | Todos los elementos metálicos del modelo (perfiles, conexiones, otros y misceláneos): Elemento, Categoría, Tipo, Cantidad y **Peso (kg)**. Tabla de varias categorías filtrada por "Metrado - Material" = `ACERO ESTRUCTURAL` (opcional, marcada por defecto) | Por elemento (encabezado y pie con totales), luego categoría y tipo; total general |
 
@@ -256,9 +257,10 @@ función aparte para tablas que ya existen en el proyecto.)
   los materiales uno a uno. En condiciones normales el respaldo no interviene.
 - **Filtros de vista para verificar** (opción "Crear filtros de vista por colores"): el plugin crea en el
   proyecto filtros de Visibilidad/Gráficos, uno por tipo de elemento, y los aplica a la vista activa con
-  color de línea y relleno sólido: `Metrado - Concreto - Vigas / Columnas / Losas / Cimentaciones / Muros`
-  (regla: categoría y `Metrado - Material = CONCRETO`), `Metrado - Acero estructural - Vigas / Columnas /
-  Conexiones y anclajes / Otros` (`= ACERO ESTRUCTURAL` y "Metrado - Elemento" = su grupo),
+  color de línea y relleno sólido: `Metrado - Concreto - Vigas / Columnas / Losas / Cimentaciones / Muros / Otros`
+  (regla: categoría, `Metrado - Material = CONCRETO` y "Metrado - Elemento" = su grupo), `Metrado - Acero
+  estructural - Vigas / Columnas / Conexiones y anclajes / Otros` (`= ACERO ESTRUCTURAL` y "Metrado - Elemento"
+  = su grupo),
   `Metrado - Acero estructural - Misceláneos` ("Metrado - Elemento" = `MISCELANEOS`, lila) y
   `Metrado - Refuerzo - VIGAS / COLUMNAS / CIMIENTOS / LOSAS / MUROS` (armaduras y
   mallas por el parámetro **"Metrado - Elemento"**, que el plugin escribe en cada refuerzo con el tipo de su
@@ -413,7 +415,10 @@ combinación **propia** marcada, con los mismos valores exactos que su tabla: `M
 `Metrado - Refuerzo - ESCALERAS`. Las combinaciones predeterminadas marcadas no reciben filtro propio porque ya
 las cubren los predeterminados. Cada filtro propio recibe un color fijo derivado de su nombre y se aplica a la
 vista activa (o a otra que admita filtros), igual que los predeterminados. Úselo cuando aparezcan clasificaciones
-nuevas (por ejemplo tras escribir `ESCALERAS` en más elementos) para que los filtros las recojan.
+nuevas (por ejemplo tras escribir `ESCALERAS` en más elementos) para que los filtros las recojan. Como todos los
+filtros de elementos exigen el valor exacto de "Metrado - Elemento", un suelo al que escribió `SOLADO` deja de
+cumplir `Metrado - Concreto - Losas` y lo pinta solo `Metrado - Concreto - SOLADO`; si un elemento cumpliera dos
+filtros, Revit aplicaría el que esté más arriba en la lista de la vista (el predeterminado) y el propio no se vería.
 
 Tenga en cuenta que el **Metrado automático** siempre recalcula `Metrado - Elemento` (y `Metrado - Material`
 salvo que marque "Conservar la clasificación"), así que al ejecutarlo los textos propios vuelven al grupo

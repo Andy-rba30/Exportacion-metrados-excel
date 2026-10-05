@@ -10,8 +10,9 @@ namespace ExportacionMetrados.Core.Metrado
     /// Crea filtros de vista (Visibilidad/Gráficos) con un color por tipo de elemento
     /// metrado, para comprobar a simple vista qué entra en cada tabla:
     ///   - "Metrado - Concreto - {elemento}"           categoría + "Metrado - Material" = CONCRETO
+    ///                                                 + "Metrado - Elemento" = grupo
     ///   - "Metrado - Acero estructural - {elemento}"  categoría + "Metrado - Material" = ACERO ESTRUCTURAL
-    ///                                                 (+ "Metrado - Elemento" = grupo)
+    ///                                                 + "Metrado - Elemento" = grupo
     ///   - "Metrado - Acero estructural - Misceláneos" "Metrado - Elemento" = MISCELANEOS (contrato ARBA:
     ///                                                 elementos con "Metrado - Partida")
     ///   - "Metrado - Refuerzo - {ELEMENTO}"           armaduras y mallas cuyo "Metrado - Elemento"
@@ -22,6 +23,10 @@ namespace ExportacionMetrados.Core.Metrado
     ///                                                 elementos o refuerzo cuyos "Metrado - Material" y
     ///                                                 "Metrado - Elemento" son exactamente los de una
     ///                                                 combinación propia del modelo ("ESCALERAS"...)
+    /// Todos los filtros de elementos exigen el valor exacto de "Metrado - Elemento": así un elemento al
+    /// que el usuario escribió un texto propio (SOLADO en un suelo) sale del filtro predeterminado de su
+    /// categoría y solo lo pinta su filtro propio; si cumpliera los dos, Revit aplicaría el que esté más
+    /// arriba en la lista de la vista (el predeterminado) y el propio no tendría efecto.
     /// Los filtros quedan en el proyecto (se pueden usar en cualquier vista desde
     /// Visibilidad/Gráficos) y, si se pasa una vista, se aplican a ella con color de
     /// línea y relleno sólido (<see cref="ElegirVista"/> elige una que los admita). Debe
@@ -108,7 +113,10 @@ namespace ExportacionMetrados.Core.Metrado
 
                     if (!cat.EsConexiones)
                     {
-                        Agregar(filtros, Crear(PrefijoConcreto + cat.Nombre, cat.Categorias, idMaterial, ClasificadorElementos.ValorConcreto),
+                        // También "Metrado - Elemento" = grupo (como en acero estructural): un suelo con un texto
+                        // propio (SOLADO) ya no entra en "Metrado - Concreto - Losas" y lo pinta solo su filtro propio.
+                        Agregar(filtros, Crear(PrefijoConcreto + cat.Nombre, cat.Categorias, idMaterial, ClasificadorElementos.ValorConcreto,
+                                idGrupo, cat.NombreParticion),
                             ColorDe(ColoresConcreto, cat.Nombre));
                     }
 
@@ -318,8 +326,13 @@ namespace ExportacionMetrados.Core.Metrado
             ElementId idParametro2 = null, string valor2 = null)
         {
             var reglas = new List<FilterRule> { ArbaRevit.EqualsRule(idParametro, valor) };
-            if (idParametro2 != null && valor2 != null) reglas.Add(ArbaRevit.EqualsRule(idParametro2, valor2));
-            return Crear(nombre, categorias, idParametro, reglas);
+            var ids = new List<ElementId> { idParametro };
+            if (idParametro2 != null && valor2 != null)
+            {
+                reglas.Add(ArbaRevit.EqualsRule(idParametro2, valor2));
+                ids.Add(idParametro2);
+            }
+            return Crear(nombre, categorias, ids, reglas);
         }
 
         /// <summary>
