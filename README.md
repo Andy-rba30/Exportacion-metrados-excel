@@ -30,9 +30,10 @@ Plugin para Autodesk Revit, escrito en C#, que exporta las **tablas de planifica
   armado ARBA la pestaña **ARBA** de la cinta, los ocho parámetros compartidos con GUID fijo (`ARBA - Origen`,
   `ARBA - Código`, `ARBA - Anfitrión`, `Metrado - Partida`, `Metrado - Material`, `Metrado - Peso (kg)`,
   `Metrado - Pernos (und)`, `Metrado - Elemento`), la gramática de la partición del acero
-  (`CATEGORIA - PREFIJO-marca[-codigo]`), la tabla de **misceláneos** por partida (rejillas, ángulos) y el botón
-  **Migrar particiones y origen** para modelos armados con versiones anteriores. Ver
+  (`CATEGORIA - PREFIJO-marca[-codigo]`) y la tabla de **misceláneos** por partida (rejillas, ángulos). Ver
   [`external/ARBA-comun/CONTRATO.md`](external/ARBA-comun/CONTRATO.md).
+- Botón **Limpiar modelo**: quita del proyecto, a elección, las tablas y los filtros de vista del plugin, los
+  valores que escribe en los parámetros y los propios parámetros.
 - Compatible con Revit 2021 a 2024 (.NET Framework 4.8), 2025 y 2026 (.NET 8) y 2027+ (.NET 10).
 
 ## Estructura
@@ -47,7 +48,7 @@ src/ExportacionMetrados/
 ├── MetradoAutomaticoCommand.cs    Comando 2: metrado automático de concreto y acero
 ├── ParametrosMetradoCommand.cs    Comando 3: parámetros y filtros sin tablas; tablas propias desde los parámetros
 ├── AsignarParticionCommand.cs     Comando 4: partición del acero no creado por ARBA ("VIGAS - MAN-V1")
-├── MigrarParticionesCommand.cs    Comando 5: migra particiones antiguas y origen al contrato (código común)
+├── LimpiarModeloCommand.cs        Comando 5: limpia tablas, filtros, valores y parámetros del plugin
 ├── MetradoEncofradoCommand.cs     Comando 6 (panel Encofrado): metrado de encofrado según el elemento y su contexto
 ├── ExportacionMetrados.addin      Manifiesto que Revit lee para cargar el plugin
 ├── Core/
@@ -74,6 +75,7 @@ src/ExportacionMetrados/
 │   ├── ParametrosMetradoWindow.xaml Ventana de "Parámetros y filtros" (dos pestañas: parámetros / tablas y filtros propios)
 │   ├── MetradoEncofradoWindow.xaml Ventana de opciones del metrado de encofrado
 │   ├── AsignarParticionWindow.xaml Ventana de "Asignar partición"
+│   ├── LimpiarModeloWindow.xaml   Ventana de "Limpiar modelo" (cuatro opciones)
 │   └── TablaItem.cs               Modelo de cada fila de la lista
 └── Resources/                     Iconos de los botones
 ```
@@ -157,8 +159,8 @@ Si prefiere no usar la copia automática, copie `ExportacionMetrados.addin` a
 2. Vaya a la pestaña **ARBA** (la comparten todos los add-ins ARBA), panel **Metrados**. Hay cinco botones:
    **Exportar a Excel** (exporta tablas de planificación ya existentes), **Metrado automático** (crea las tablas
    de metrado en Revit y opcionalmente las exporta, ver más abajo), **Parámetros y filtros** (parámetros y
-   filtros sin tablas, y tablas propias a partir de los parámetros), **Asignar partición** y **Migrar
-   particiones y origen** (ver sus apartados). En el panel **Encofrado** de la misma pestaña está **Metrado de
+   filtros sin tablas, y tablas propias a partir de los parámetros), **Asignar partición** y **Limpiar
+   modelo** (ver sus apartados). En el panel **Encofrado** de la misma pestaña está **Metrado de
    encofrado**. Pulse **Exportar a Excel**.
 3. Marque las tablas que desea exportar (si la vista activa es una tabla, aparece marcada).
    Puede filtrar por nombre o categoría y usar **Todas** / **Ninguna**.
@@ -188,6 +190,8 @@ función aparte para tablas que ya existen en el proyecto.)
 | `Metrado acero estructural - Misceláneos` | **Contrato ARBA**: elementos con **"Metrado - Partida"** (rejillas, ángulos y otras piezas que un add-in ARBA o el usuario metran por partida), de cualquier categoría. Tabla de varias categorías filtrada por "Metrado - Elemento" = `MISCELANEOS`: Partida, Categoría, Elemento, `ARBA - Código`, Cantidad, **Peso (kg)** y **Pernos (und)** con totales. El peso que escribió su add-in se respeta; si no lo hay, volumen × densidad. Estas piezas **no** aparecen en Vigas, Conexiones ni Otros. | Por partida (encabezado y pie con totales), luego categoría de Revit y tipo; total general |
 | `Metrado acero - <elemento>` | Refuerzo cuyo anfitrión es de ese tipo: filtra por el parámetro **"Metrado - Elemento"** (`VIGAS`, `COLUMNAS`, `CIMIENTOS`, `LOSAS`, `MUROS`), que el plugin escribe en cada armadura según su anfitrión real; la partición puede tener cualquier texto (respaldo del filtro: partición que empieza por `VIGAS - `, la forma del contrato). Columnas: Partición, Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario, Peso (kg) | Por partición (encabezado y pie con totales: `CIMIENTOS - ZAP-Z1`, `VIGAS - MAN-V1`...), luego tipo de barra; total general |
 | `Metrado acero - General` | Todo el refuerzo del modelo: Elemento (tipo de anfitrión), Partición, **`ARBA - Código`** (capa o familia del add-in que armó: `inferior`, `estribo`, `F1`...) y las mismas columnas | Por elemento (encabezado y pie con totales), luego partición, luego tipo de barra; total general |
+| `Metrado concreto - General` | Todo el concreto del modelo en una sola tabla: Elemento, Categoría, Tipo, Material, Cantidad y **Volumen**. Como una tabla de varias categorías no expone el volumen, es una **tabla de cantidades de materiales** de varias categorías filtrada por "Metrado - Material" = `CONCRETO` (opcional, marcada por defecto) | Por elemento (encabezado y pie con totales), luego categoría, tipo y material; total general |
+| `Metrado acero estructural - General` | Todos los elementos metálicos del modelo (perfiles, conexiones, otros y misceláneos): Elemento, Categoría, Tipo, Cantidad y **Peso (kg)**. Tabla de varias categorías filtrada por "Metrado - Material" = `ACERO ESTRUCTURAL` (opcional, marcada por defecto) | Por elemento (encabezado y pie con totales), luego categoría y tipo; total general |
 
 - Las tablas no están desglosadas por elemento (una fila por tipo). Si quiere ver cada elemento, active
   "Desglosar cada ejemplar" en la tabla.
@@ -434,23 +438,25 @@ Escribe el parámetro **Partición** del acero de refuerzo que no creó ningún 
 Las tablas de acero y la general se agrupan por este parámetro, así que basta con mantenerlo al día. Los
 parámetros del contrato se crean si faltan.
 
-## Migrar particiones y origen (quinto botón)
+## Limpiar modelo (quinto botón)
 
-Para modelos armados con versiones de los add-ins ARBA anteriores al contrato. Lo aporta el código común
-(`ArbaMigrateCommandBase`) y migra **sin rearmar**:
+Quita del proyecto, a elección, lo que deja el plugin. Cuatro casillas:
 
-- Sin selección, todo el modelo; con selección, los anfitriones elegidos (o los de las armaduras elegidas).
-- Convierte las particiones antiguas a la forma del contrato con la categoría del **anfitrión real**:
-  `ZAP-Z1` → `CIMIENTOS - ZAP-Z1`, `CC-C1` → `MUROS - CCO-C1` (o `CIMIENTOS - CCO-C1`), `BLQ-FT-01-F1` →
-  `CIMIENTOS - BLQ-FT-01-F1`, `LOSA-L1` → `LOSAS - LOS-L1`, `MC-M1` → `MUROS - MCO-M1`.
-- Rellena `ARBA - Origen` (ZAPATAS, CIMIENTOS CORRIDOS, BLOQUES, LOSAS, MUROS DE CONTENCION...), `ARBA - Código`
-  (si la partición lo llevaba: `F1`, `inferior`...) y `Metrado - Elemento`.
-- No toca las particiones de solo categoría (`VIGAS`) ni las desconocidas; no crea ni borra barras; crea los
-  parámetros del contrato si faltan; el número de conjuntos no cambia. Ctrl+Z lo deshace.
-- Muestra un resumen por add-in (revisadas, migradas, ya conformes, sin tocar).
+- **Eliminar los filtros de vista** del plugin: todos los que empiezan por `Metrado - ` (predeterminados y
+  propios). Se quitan también de las vistas que los usaban.
+- **Eliminar las tablas de planificación** del plugin: todas las que empiezan por `Metrado ` (concreto, acero
+  estructural, acero, encofrado, generales y propias). Si están en planos, desaparecen de ellos. La tabla que sea
+  la vista activa no se puede eliminar (se avisa).
+- **Limpiar los valores** que escribe el plugin: `Metrado - Material`, `Metrado - Elemento`, `Metrado - Peso (kg)`
+  y `Metrado - Encofrado (m²)` en elementos y refuerzo, y la partición + `ARBA - Origen` del refuerzo que
+  particionó el plugin (`MAN` / MANUAL). Los parámetros se conservan. Los elementos y armaduras con origen de un
+  add-in ARBA de armado (rejillas, ángulos, barras `ZAP`, `CCO`, `BLQ`...) se respetan.
+- **Borrar los parámetros** que crea el plugin: se quita del proyecto el vínculo de los ocho parámetros del
+  contrato ARBA-comun y de `Metrado - Encofrado (m²)`, así dejan de salir en Propiedades. Se pierden **todos** sus
+  valores, incluidos los de los add-ins ARBA; cualquier add-in ARBA o este plugin los vuelve a crear al ejecutarse.
 
-Después de migrar, las tablas `Metrado acero - Vigas / Columnas / Cimentaciones / Losas` agrupan por la nueva
-partición (`CIMIENTOS - ZAP-Z1`...) y `Metrado acero - General` muestra la columna `ARBA - Código`.
+Todo va en una sola transacción: Ctrl+Z lo deshace. Al terminar muestra el resumen (tablas, filtros y parámetros
+quitados, elementos y refuerzos vaciados, respetados de add-ins ARBA) y las advertencias.
 
 ## Metrado de encofrado (panel Encofrado)
 

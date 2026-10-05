@@ -18,6 +18,9 @@ namespace ExportacionMetrados.Core.Metrado
     ///                                              varias categorías, agrupada por partida, kg y pernos
     ///   - "Metrado acero - {elemento}"             refuerzo cuyo anfitrión es de esa categoría
     ///   - "Metrado acero - General"                todo el refuerzo, por elemento y partición, con "ARBA - Código"
+    ///   - "Metrado concreto - General"             todo el concreto por elemento, categoría, tipo y material, con
+    ///                                              volumen (cantidades de materiales de varias categorías)
+    ///   - "Metrado acero estructural - General"    todos los elementos metálicos por elemento, categoría y tipo, con peso
     /// Una tabla que ya existe se reutiliza, salvo que se pida regenerarla o que tenga una
     /// estructura de una versión anterior (agrupada por nivel cuando ya no toca, sin el
     /// filtro por "Metrado - Material" o filtrada por partición en vez de por
@@ -30,6 +33,8 @@ namespace ExportacionMetrados.Core.Metrado
         public const string PrefijoAceroEstructural = "Metrado acero estructural - ";
         public const string PrefijoAcero = "Metrado acero - ";
         public const string NombreAceroGeneral = "Metrado acero - General";
+        public const string NombreConcretoGeneral = PrefijoConcreto + "General";
+        public const string NombreAceroEstructuralGeneral = PrefijoAceroEstructural + "General";
         /// <summary>Tabla de misceláneos del contrato ARBA (elementos con "Metrado - Partida").</summary>
         public const string NombreMiscelaneos = PrefijoAceroEstructural + "Misceláneos";
 
@@ -117,6 +122,18 @@ namespace ExportacionMetrados.Core.Metrado
                         existente => MotivoTablaElementosDesactualizada(existente, cat));
                     if (m != null) tablas.Add(m);
                 }
+            }
+
+            // Tablas generales de elementos: todo el concreto (con volumen) y todo el acero estructural (con peso).
+            if (_op.TablaConcretoGeneral)
+            {
+                ViewSchedule g = CrearOReutilizar(NombreConcretoGeneral, CrearTablaConcretoGeneral);
+                if (g != null) tablas.Add(g);
+            }
+            if (_op.TablasAceroEstructural && _op.TablaAceroEstructuralGeneral)
+            {
+                ViewSchedule g = CrearOReutilizar(NombreAceroEstructuralGeneral, CrearTablaAceroEstructuralGeneral);
+                if (g != null) tablas.Add(g);
             }
 
             if (_op.IncluirAcero)
@@ -907,6 +924,148 @@ namespace ExportacionMetrados.Core.Metrado
                 }
             }
             return false;
+        }
+
+        // ------------------------------------------------------------------
+        // Tablas generales de elementos
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// "Metrado concreto - General": todo el concreto del modelo en una sola tabla. Como una tabla de
+        /// varias categorías no expone el volumen, es una tabla de cantidades de materiales de varias
+        /// categorías filtrada por "Metrado - Material" = CONCRETO: Elemento (grupo, con encabezado y pie),
+        /// Categoría, Tipo, Material, Cantidad y Volumen con totales. Si Revit no admite esa tabla se lanza
+        /// una excepción (la recoge <see cref="CrearOReutilizar"/> como advertencia).
+        /// </summary>
+        private ViewSchedule CrearTablaConcretoGeneral()
+        {
+            ViewSchedule vs;
+            try { vs = ViewSchedule.CreateMaterialTakeoff(_doc, ElementId.InvalidElementId); }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Revit no admite una tabla de cantidades de materiales de varias categorías (" + ex.Message + ")");
+            }
+            ScheduleDefinition def = vs.Definition;
+            IList<SchedulableField> campos = def.GetSchedulableFields();
+
+            ScheduleField grupo = AgregarCompartido(def, campos, "Elemento", ArbaContract.Elemento);
+            ScheduleField categoria = Agregar(def, campos, "Categoría", BuiltInParameter.ELEM_CATEGORY_PARAM);
+            ScheduleField tipo = Agregar(def, campos, "Tipo", BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM);
+            ScheduleField material = AgregarMaterial(def, campos, "Material", BuiltInParameter.MATERIAL_NAME);
+
+            try
+            {
+                ScheduleField cantidad = def.AddField(ScheduleFieldType.Count);
+                cantidad.ColumnHeading = "Cantidad";
+            }
+            catch (Exception ex) { Advertencias.Add($"{NombreConcretoGeneral}: sin campo Cantidad ({ex.Message})"); }
+
+            ScheduleField volumen = AgregarMaterial(def, campos, "Volumen", BuiltInParameter.MATERIAL_VOLUME);
+            Totales(volumen);
+            if (volumen == null) Advertencias.Add($"{NombreConcretoGeneral}: no se encontró el campo de volumen del material.");
+
+            if (grupo != null)
+            {
+                def.AddSortGroupField(new ScheduleSortGroupField(grupo.FieldId)
+                {
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
+                });
+            }
+            else
+            {
+                Advertencias.Add($"{NombreConcretoGeneral}: no se encontró el parámetro \"{ClasificadorElementos.NombreParametroElementoRefuerzo}\"; la tabla no se agrupa por elemento.");
+            }
+            if (categoria != null) def.AddSortGroupField(new ScheduleSortGroupField(categoria.FieldId));
+            if (tipo != null) def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
+            if (material != null) def.AddSortGroupField(new ScheduleSortGroupField(material.FieldId));
+
+            def.IsItemized = false;
+            def.ShowGrandTotal = true;
+            def.ShowGrandTotalTitle = true;
+            def.ShowGrandTotalCount = true;
+            def.GrandTotalTitle = "Total concreto";
+
+            if (!FiltrarPorValor(def, AgregarCompartido(def, campos, "Clasificación", ArbaContract.Material), ClasificadorElementos.ValorConcreto))
+            {
+                Advertencias.Add($"{NombreConcretoGeneral}: no se pudo filtrar por \"{ClasificadorElementos.NombreParametroMaterial}\"; " +
+                                 "la tabla puede incluir elementos de otros materiales.");
+            }
+            return vs;
+        }
+
+        /// <summary>
+        /// "Metrado acero estructural - General": todos los elementos metálicos del modelo (perfiles, conexiones,
+        /// otros y misceláneos) en una tabla de varias categorías filtrada por "Metrado - Material" =
+        /// ACERO ESTRUCTURAL: Elemento (grupo, con encabezado y pie), Categoría, Tipo, Cantidad y Peso (kg)
+        /// con totales.
+        /// </summary>
+        private ViewSchedule CrearTablaAceroEstructuralGeneral()
+        {
+            ViewSchedule vs = ViewSchedule.CreateSchedule(_doc, ElementId.InvalidElementId);
+            ScheduleDefinition def = vs.Definition;
+            IList<SchedulableField> campos = def.GetSchedulableFields();
+
+            ScheduleField grupo = AgregarCompartido(def, campos, "Elemento", ArbaContract.Elemento);
+            ScheduleField categoria = Agregar(def, campos, "Categoría", BuiltInParameter.ELEM_CATEGORY_PARAM);
+            ScheduleField tipo = Agregar(def, campos, "Tipo", BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM);
+
+            try
+            {
+                ScheduleField cantidad = def.AddField(ScheduleFieldType.Count);
+                cantidad.ColumnHeading = "Cantidad";
+            }
+            catch (Exception ex) { Advertencias.Add($"{NombreAceroEstructuralGeneral}: sin campo Cantidad ({ex.Message})"); }
+
+            ScheduleField peso = AgregarCompartido(def, campos, "Peso (kg)", ArbaContract.Peso);
+            Totales(peso);
+            if (peso == null)
+            {
+                Advertencias.Add($"{NombreAceroEstructuralGeneral}: no se encontró el parámetro \"{ClasificadorElementos.NombreParametroPeso}\"; " +
+                                 "la tabla no incluye la columna de peso.");
+            }
+
+            if (grupo != null)
+            {
+                def.AddSortGroupField(new ScheduleSortGroupField(grupo.FieldId)
+                {
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
+                });
+            }
+            else
+            {
+                Advertencias.Add($"{NombreAceroEstructuralGeneral}: no se encontró el parámetro \"{ClasificadorElementos.NombreParametroElementoRefuerzo}\"; la tabla no se agrupa por elemento.");
+            }
+            if (categoria != null) def.AddSortGroupField(new ScheduleSortGroupField(categoria.FieldId));
+            if (tipo != null) def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
+
+            def.IsItemized = false;
+            def.ShowGrandTotal = true;
+            def.ShowGrandTotalTitle = true;
+            def.ShowGrandTotalCount = true;
+            def.GrandTotalTitle = "Total acero estructural";
+
+            if (!FiltrarPorValor(def, AgregarCompartido(def, campos, "Clasificación", ArbaContract.Material), ClasificadorElementos.ValorAceroEstructural))
+            {
+                Advertencias.Add($"{NombreAceroEstructuralGeneral}: no se pudo filtrar por \"{ClasificadorElementos.NombreParametroMaterial}\"; " +
+                                 "la tabla puede incluir elementos de otros materiales.");
+            }
+            return vs;
+        }
+
+        /// <summary>Campo de material de una tabla de cantidades de materiales ("Material: Nombre", "Material: Volumen"...).</summary>
+        private static ScheduleField AgregarMaterial(ScheduleDefinition def, IList<SchedulableField> campos, string encabezado, BuiltInParameter bip)
+        {
+            var id = new ElementId(bip);
+            SchedulableField sf = campos.FirstOrDefault(c => c.ParameterId == id && c.FieldType == ScheduleFieldType.Material)
+                                  ?? campos.FirstOrDefault(c => c.ParameterId == id);
+            if (sf == null) return null;
+            try
+            {
+                ScheduleField f = def.AddField(sf);
+                f.ColumnHeading = encabezado;
+                return f;
+            }
+            catch (Exception) { return null; }
         }
 
         // ------------------------------------------------------------------

@@ -113,6 +113,8 @@ namespace ExportacionMetrados.UI
             _opciones.TablasAceroPorElemento = ChkAcero.IsChecked == true;
             _opciones.TablaAceroGeneral = ChkAceroGeneral.IsChecked == true;
             _opciones.TablasAceroEstructural = ChkAceroEstructural.IsChecked == true;
+            _opciones.TablaConcretoGeneral = ChkConcretoGeneral.IsChecked == true;
+            _opciones.TablaAceroEstructuralGeneral = ChkAceroEstructuralGeneral.IsChecked == true;
             _opciones.DensidadAceroEstructural = densidadPerfiles;
             _opciones.ConservarClasificacionMaterial = ChkConservarMaterial.IsChecked == true;
             _opciones.RellenarParticiones = ChkParticiones.IsChecked == true;

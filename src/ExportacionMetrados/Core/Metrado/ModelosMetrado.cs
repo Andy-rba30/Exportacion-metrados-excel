@@ -286,6 +286,18 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>Crear una tabla general de acero de refuerzo (todas las categorías).</summary>
         public bool TablaAceroGeneral { get; set; } = true;
 
+        /// <summary>
+        /// Crear además "Metrado concreto - General": todo el concreto del modelo por elemento, categoría, tipo y
+        /// material, con volumen (tabla de cantidades de materiales de varias categorías).
+        /// </summary>
+        public bool TablaConcretoGeneral { get; set; } = true;
+
+        /// <summary>
+        /// Crear además "Metrado acero estructural - General": todos los elementos metálicos del modelo por
+        /// elemento, categoría y tipo, con peso (kg). Requiere <see cref="TablasAceroEstructural"/>.
+        /// </summary>
+        public bool TablaAceroEstructuralGeneral { get; set; } = true;
+
         /// <summary>Exportar las tablas generadas a Excel en la misma operación.</summary>
         public bool ExportarExcel { get; set; } = true;
 
