@@ -287,6 +287,13 @@ namespace ExportacionMetrados.Core.Metrado
         public bool TablaAceroGeneral { get; set; } = true;
 
         /// <summary>
+        /// Crear además "Metrado acero - Resumen": todo el refuerzo del modelo por elemento y tipo de barra, con
+        /// N° barras, longitud total y peso (kg), sin particiones; la tabla general de acero con la forma compacta
+        /// de <see cref="TablaConcretoGeneral"/> y <see cref="TablaAceroEstructuralGeneral"/>.
+        /// </summary>
+        public bool TablaAceroResumen { get; set; } = true;
+
+        /// <summary>
         /// Crear además "Metrado concreto - General": todo el concreto del modelo por elemento, categoría, tipo y
         /// material, con volumen (tabla de cantidades de materiales de varias categorías).
         /// </summary>
