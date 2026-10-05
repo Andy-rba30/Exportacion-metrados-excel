@@ -46,7 +46,13 @@
 
             <GroupBox Header="Tablas en Revit">
                 <StackPanel>
+                    <CheckBox x:Name="ChkConcretoGeneral" IsChecked="True">
+                        <TextBlock TextWrapping="Wrap" Text="Crear además una tabla general de concreto (&quot;Metrado concreto - General&quot;: todo el concreto del modelo, elemento → categoría → tipo → material, con volumen; es una tabla de cantidades de materiales de varias categorías)" />
+                    </CheckBox>
                     <CheckBox x:Name="ChkAceroEstructural" Content="Separar en tablas aparte los elementos metálicos (acero estructural), metrados por peso" IsChecked="True" />
+                    <CheckBox x:Name="ChkAceroEstructuralGeneral" IsChecked="True" Margin="20,3,0,3">
+                        <TextBlock TextWrapping="Wrap" Text="Crear además una tabla general de acero estructural (&quot;Metrado acero estructural - General&quot;: todos los elementos metálicos, elemento → categoría → tipo, con peso)" />
+                    </CheckBox>
                     <CheckBox x:Name="ChkConservarMaterial" Content="Conservar la clasificación &quot;Metrado - Material&quot; ya escrita en los elementos" IsChecked="False" />
                     <CheckBox x:Name="ChkParticiones" IsChecked="True">
                         <TextBlock TextWrapping="Wrap" Text="Rellenar la partición vacía del acero que no creó un add-in ARBA con la forma del contrato: CATEGORIA - MAN-marca del anfitrión (VIGAS - MAN-V1, CIMIENTOS - MAN-Z3...) y &quot;ARBA - Origen&quot; = MANUAL" />

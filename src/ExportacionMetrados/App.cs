@@ -9,8 +9,8 @@ namespace ExportacionMetrados
     /// <summary>
     /// Punto de entrada del plugin. Añade al panel "Metrados" de la pestaña común "ARBA"
     /// (contrato ARBA-comun) los botones de exportar a Excel, metrado automático, parámetros y
-    /// filtros (sin tablas, y tablas propias desde los parámetros), asignar partición y migrar
-    /// particiones y origen. La pestaña y sus paneles los crea
+    /// filtros (sin tablas, y tablas propias desde los parámetros), asignar partición y limpiar
+    /// modelo. La pestaña y sus paneles los crea
     /// <see cref="ArbaRibbon"/>, el mismo código que usan los add-ins de armado, así todos
     /// comparten una sola pestaña sin importar cuál cargue primero.
     /// </summary>
@@ -105,20 +105,19 @@ namespace ExportacionMetrados
                 Image = CargarIcono("particion16.png"),
             };
 
-            var datosMigrar = new PushButtonData(
-                "ARBA_Metrados_Migrar",
-                "Migrar\nparticiones y origen",
+            var datosLimpiar = new PushButtonData(
+                "ARBA_Metrados_Limpiar",
+                "Limpiar\nmodelo",
                 rutaEnsamblado,
-                typeof(MigrarParticionesCommand).FullName)
+                typeof(LimpiarModeloCommand).FullName)
             {
-                ToolTip = "Convierte las particiones antiguas de los add-ins ARBA (ZAP-Z1, CC-C1, BLQ-FT-01-F1, LOSA-L1, MC-M1...) a la " +
-                          "forma del contrato \"CATEGORIA - PREFIJO-marca[-codigo]\" y rellena \"ARBA - Origen\", \"ARBA - Código\" y " +
-                          "\"Metrado - Elemento\". Sin selección migra todo el modelo; con selección, los anfitriones elegidos.",
-                LongDescription = "La categoría se toma del anfitrión real: ZAP-Z1 pasa a CIMIENTOS - ZAP-Z1, CC-C1 a MUROS - CCO-C1 " +
-                                  "(o CIMIENTOS - CCO-C1), BLQ-FT-01-F1 a CIMIENTOS - BLQ-FT-01-F1, LOSA-L1 a LOSAS - LOS-L1 y MC-M1 a " +
-                                  "MUROS - MCO-M1. No toca las particiones de solo categoría (VIGAS) ni las desconocidas, no crea ni " +
-                                  "borra barras y crea los parámetros compartidos del contrato ARBA-comun " + ArbaContract.Version +
-                                  " si faltan. Se puede deshacer con Ctrl+Z.",
+                ToolTip = "Quita del proyecto, a elección, lo que deja el plugin: las tablas \"Metrado ...\", los filtros de vista " +
+                          "\"Metrado - ...\", los valores que escribe en los parámetros y los propios parámetros (dejan de salir en Propiedades).",
+                LongDescription = "Cuatro opciones para marcar: eliminar las tablas de planificación del plugin, eliminar sus filtros de vista " +
+                                  "por colores, limpiar los valores que escribe (\"Metrado - Material\", \"Metrado - Elemento\", " +
+                                  "\"Metrado - Peso (kg)\", \"Metrado - Encofrado (m²)\" y las particiones MAN) y borrar del proyecto los " +
+                                  "parámetros compartidos que crea. Los valores escritos por los add-ins ARBA de armado se respetan. " +
+                                  "Se puede deshacer con Ctrl+Z.",
                 LargeImage = ArbaRibbon.IconMetrados(32),
                 Image = ArbaRibbon.IconMetrados(16),
             };
@@ -145,7 +144,7 @@ namespace ExportacionMetrados
             ArbaRibbon.AddMetrados(application, datosMetrado);
             ArbaRibbon.AddMetrados(application, datosParametros);
             ArbaRibbon.AddMetrados(application, datosParticion);
-            ArbaRibbon.AddMetrados(application, datosMigrar);
+            ArbaRibbon.AddMetrados(application, datosLimpiar);
             ArbaRibbon.AddButton(application, ArbaRibbon.PanelEncofradoName, datosEncofrado);
         }
 
