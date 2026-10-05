@@ -439,13 +439,15 @@ parámetros del contrato se crean si faltan.
 
 ## Limpiar modelo (quinto botón)
 
-Quita del proyecto, a elección, lo que deja el plugin. Cuatro casillas:
+Quita del proyecto, a elección, lo que deja el plugin. Cinco casillas:
 
 - **Eliminar los filtros de vista** del plugin: todos los que empiezan por `Metrado - ` (predeterminados y
   propios). Se quitan también de las vistas que los usaban.
 - **Eliminar las tablas de planificación** del plugin: todas las que empiezan por `Metrado ` (concreto, acero
   estructural, acero, encofrado, generales y propias). Si están en planos, desaparecen de ellos. La tabla que sea
   la vista activa no se puede eliminar (se avisa).
+- **Eliminar la piel de encofrado de verificación**: los modelos genéricos `Piel de encofrado - <grupo>` que crea
+  el metrado de encofrado y sus materiales.
 - **Limpiar los valores** que escribe el plugin: `Metrado - Material`, `Metrado - Elemento`, `Metrado - Peso (kg)`
   y `Metrado - Encofrado (m²)` en elementos y refuerzo, y la partición + `ARBA - Origen` del refuerzo que
   particionó el plugin (`MAN` / MANUAL). Los parámetros se conservan. Los elementos y armaduras con origen de un
@@ -500,6 +502,14 @@ automático):
   antes *Metrado automático* o *Parámetros y filtros* para que esos parámetros estén escritos); columnas y muros
   además por nivel. Y **`Metrado encofrado - General`**: todos los elementos con encofrado calculado, de varias
   categorías, agrupados por `Metrado - Elemento`. Se exportan con *Exportar a Excel* como cualquier otra.
+- **Piel de encofrado de verificación** (opcional, marcada por defecto): por cada elemento metrado, un modelo
+  genérico auxiliar `Piel de encofrado - <grupo>` con un sólido de 5 mm sobre cada cara que se encofra, al que
+  se le resta exactamente la superficie en contacto con los vecinos: lo que se ve es lo que se metró, descuentos
+  incluidos. Cada grupo tiene su material y su color (Vigas azul, Columnas rojo, Cimentaciones marrón, Losas
+  verde, Muros morado; la misma paleta que los filtros de concreto), visibles en cualquier vista **sombreada**.
+  Las caras curvas (columnas circulares) se pintan enteras, sin descuentos, y el resumen cuenta esas caras. Las
+  pieles se reemplazan en cada cálculo, se reconocen por su identificador de aplicación (el metrado no las cuenta
+  como concreto ni como contexto) y se quitan con **Limpiar modelo**.
 - Excel (opcional): hoja **Resumen** (por elemento, por elemento y tipo, por elemento y nivel, con laterales,
   fondos, descuento y neto), una hoja por tabla de Revit creada, **Encofrado - Detalle** (una fila por elemento:
   caras brutas, descuentos, neto, caras superiores no encofradas, fondo no contado, observaciones) y

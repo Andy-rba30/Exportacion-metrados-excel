@@ -37,6 +37,9 @@
                 <CheckBox x:Name="ChkTablas" IsChecked="True">
                     <TextBlock TextWrapping="Wrap" Text="Eliminar las tablas de planificación creadas por el plugin (todas las que empiezan por &quot;Metrado &quot;: concreto, acero estructural, acero, encofrado, generales y propias). Si están en planos, desaparecen de ellos." />
                 </CheckBox>
+                <CheckBox x:Name="ChkPiel" IsChecked="True">
+                    <TextBlock TextWrapping="Wrap" Text="Eliminar la piel de encofrado de verificación (los modelos genéricos &quot;Piel de encofrado - Vigas / Columnas / ...&quot; que crea el metrado de encofrado) y sus materiales." />
+                </CheckBox>
                 <CheckBox x:Name="ChkValores" IsChecked="False">
                     <TextBlock TextWrapping="Wrap" Text="Limpiar los valores que escribe el plugin: &quot;Metrado - Material&quot;, &quot;Metrado - Elemento&quot;, &quot;Metrado - Peso (kg)&quot; y &quot;Metrado - Encofrado (m²)&quot; en elementos y refuerzo, y la partición + &quot;ARBA - Origen&quot; del refuerzo que particionó el plugin (MAN / MANUAL). Los parámetros se conservan." />
                 </CheckBox>

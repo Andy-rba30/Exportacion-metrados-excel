@@ -74,12 +74,12 @@ namespace ExportacionMetrados
                 }
 
                 // 2. Escritura en Revit: parámetro y tablas.
-                int escritos = 0, subproyectos = 0;
+                int escritos = 0, subproyectos = 0, pieles = 0, pielSinDescuento = 0;
                 bool parametroOk = true;
                 var tablas = new List<ViewSchedule>();
                 GeneradorTablasRevit generador = null;
 
-                if (opciones.EscribirParametro || opciones.CrearTablas)
+                if (opciones.EscribirParametro || opciones.CrearTablas || opciones.CrearPiel)
                 {
                     OpcionesMetrado opcionesMetrado = opciones.ComoOpcionesMetrado();
                     if (opciones.ReservarSubproyectos)
@@ -104,6 +104,12 @@ namespace ExportacionMetrados
                             tablas = generador.GenerarEncofrado(opciones.Reglas.Where(r => r.Seleccionada).Select(r => r.Grupo), opciones.TablaGeneral);
                             advertencias.AddRange(generador.Advertencias);
                         }
+
+                        // Piel de verificación: reemplaza la del cálculo anterior.
+                        if (opciones.CrearPiel)
+                        {
+                            pieles = PielEncofrado.Crear(doc, resultado.Elementos, advertencias, out pielSinDescuento);
+                        }
                         t.Commit();
                     }
                 }
@@ -122,7 +128,7 @@ namespace ExportacionMetrados
                     catch (Exception) { /* no es crítico */ }
                 }
 
-                MostrarResumen(resultado, opciones, tablas, generador, escritos, parametroOk, subproyectos, advertencias);
+                MostrarResumen(resultado, opciones, tablas, generador, escritos, parametroOk, subproyectos, pieles, pielSinDescuento, advertencias);
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -140,7 +146,7 @@ namespace ExportacionMetrados
         }
 
         private static void MostrarResumen(ResultadoEncofrado r, OpcionesEncofrado op, List<ViewSchedule> tablas, GeneradorTablasRevit generador,
-            int escritos, bool parametroOk, int subproyectos, List<string> advertencias)
+            int escritos, bool parametroOk, int subproyectos, int pieles, int pielSinDescuento, List<string> advertencias)
         {
             var lineas = new List<string>
             {
@@ -170,6 +176,12 @@ namespace ExportacionMetrados
             if (generador != null)
             {
                 lineas.Add($"Tablas creadas en Revit: {generador.TablasCreadas.Count}; reutilizadas: {generador.TablasReutilizadas.Count}");
+            }
+            if (op.CrearPiel)
+            {
+                lineas.Add($"Piel de encofrado de verificación: {pieles} elementos (modelos genéricos \"{PielEncofrado.PrefijoNombre}<grupo>\", " +
+                           "un color por grupo; véala en una vista sombreada)" +
+                           (pielSinDescuento > 0 ? $"; caras pintadas enteras, sin descuento (curvas o aproximadas): {pielSinDescuento}" : string.Empty));
             }
             if (subproyectos > 0) lineas.Add($"Subproyectos reservados (modelo compartido): {subproyectos}");
             lineas.Add($"Tiempo de cálculo: {r.Duracion.TotalSeconds:0.#} s ({r.OperacionesBooleanas} intersecciones de geometría)");

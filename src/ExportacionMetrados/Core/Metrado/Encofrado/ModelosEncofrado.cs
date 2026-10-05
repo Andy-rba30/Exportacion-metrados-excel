@@ -154,6 +154,13 @@ namespace ExportacionMetrados.Core.Metrado.Encofrado
         /// <summary>Escribir el resultado en el parámetro "Metrado - Encofrado (m²)" de cada elemento.</summary>
         public bool EscribirParametro { get; set; } = true;
 
+        /// <summary>
+        /// Crear la piel de encofrado de verificación: por cada elemento metrado, un modelo genérico auxiliar
+        /// con un sólido fino sobre cada cara que se encofra, descontados los contactos, con un color por
+        /// grupo (<see cref="PielEncofrado"/>). Se reemplaza en cada cálculo.
+        /// </summary>
+        public bool CrearPiel { get; set; } = true;
+
         /// <summary>Crear las tablas "Metrado encofrado - {elemento}".</summary>
         public bool CrearTablas { get; set; } = true;
 
@@ -231,6 +238,16 @@ namespace ExportacionMetrados.Core.Metrado.Encofrado
         public string Nota { get; set; }
 
         public List<ContactoEncofrado> Contactos { get; } = new List<ContactoEncofrado>();
+
+        /// <summary>
+        /// Piel de verificación (solo con <see cref="OpcionesEncofrado.CrearPiel"/>): un sólido fino por cada
+        /// cara plana que cuenta, ya descontados los contactos, en unidades internas.
+        /// </summary>
+        public List<Solid> PielSolidos { get; } = new List<Solid>();
+        /// <summary>Piel de las caras curvas: triángulos (tres puntos) desplazados 1 mm hacia fuera, sin descuentos.</summary>
+        public List<XYZ[]> PielTriangulos { get; } = new List<XYZ[]>();
+        /// <summary>Caras cuya piel se pinta entera aunque tengan contacto (curvas, muestreadas o cuyo descuento falló).</summary>
+        public int PielCarasSinDescuento { get; set; }
     }
 
     public class ResultadoEncofrado

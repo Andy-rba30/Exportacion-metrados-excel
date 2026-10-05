@@ -47,7 +47,7 @@ namespace ExportacionMetrados.Core.Metrado
 
         // Paleta por tipo de elemento. Concreto, perfiles y refuerzo usan familias de
         // colores distintas para que no se confundan en la misma vista.
-        private static readonly Dictionary<string, Color> ColoresConcreto = new Dictionary<string, Color>
+        internal static readonly Dictionary<string, Color> ColoresConcreto = new Dictionary<string, Color>
         {
             { "Vigas",         new Color(0, 112, 192) },   // azul
             { "Columnas",      new Color(192, 0, 0) },     // rojo
@@ -515,12 +515,14 @@ namespace ExportacionMetrados.Core.Metrado
             if (FiltrosAplicados > 0) VistaAplicada = vista.Name;
         }
 
+        private ElementId PatronSolido() => PatronSolido(_doc);
+
         /// <summary>Patrón de relleno sólido del proyecto (null si no se encuentra).</summary>
-        private ElementId PatronSolido()
+        internal static ElementId PatronSolido(Document doc)
         {
             try
             {
-                FillPatternElement solido = new FilteredElementCollector(_doc)
+                FillPatternElement solido = new FilteredElementCollector(doc)
                     .OfClass(typeof(FillPatternElement))
                     .Cast<FillPatternElement>()
                     .FirstOrDefault(f =>

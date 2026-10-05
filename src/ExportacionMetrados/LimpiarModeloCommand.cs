@@ -52,6 +52,7 @@ namespace ExportacionMetrados
                 string contenido =
                     (op.EliminarTablas ? $"Tablas eliminadas: {limpiador.TablasEliminadas.Count}\n" : string.Empty) +
                     (op.EliminarFiltros ? $"Filtros de vista eliminados: {limpiador.FiltrosEliminados.Count}\n" : string.Empty) +
+                    (op.EliminarPiel ? $"Pieles de encofrado de verificación eliminadas: {limpiador.PielesEliminadas}\n" : string.Empty) +
                     (op.LimpiarValores
                         ? $"Elementos con parámetros vaciados: {limpiador.ElementosLimpiados}\n" +
                           $"Refuerzos con parámetros vaciados: {limpiador.RefuerzosLimpiados}\n" +

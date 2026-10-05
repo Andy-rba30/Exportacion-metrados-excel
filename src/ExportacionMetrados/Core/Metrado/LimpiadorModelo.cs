@@ -14,18 +14,21 @@ namespace ExportacionMetrados.Core.Metrado
         public bool EliminarTablas { get; set; }
         /// <summary>Eliminar los filtros de vista del plugin ("Metrado - ...").</summary>
         public bool EliminarFiltros { get; set; }
+        /// <summary>Eliminar la piel de encofrado de verificación (modelos genéricos "Piel de encofrado - ...") y sus materiales.</summary>
+        public bool EliminarPiel { get; set; }
         /// <summary>Vaciar los valores que escribe el plugin en los parámetros (sin quitar los parámetros).</summary>
         public bool LimpiarValores { get; set; }
         /// <summary>Quitar del proyecto los parámetros compartidos que crea el plugin (dejan de salir en Propiedades).</summary>
         public bool BorrarParametros { get; set; }
 
-        public bool Alguna => EliminarTablas || EliminarFiltros || LimpiarValores || BorrarParametros;
+        public bool Alguna => EliminarTablas || EliminarFiltros || EliminarPiel || LimpiarValores || BorrarParametros;
     }
 
     /// <summary>
     /// Deshace, a elección, lo que el plugin deja en el proyecto:
     ///   - tablas de planificación "Metrado ..." (concreto, acero estructural, acero, encofrado y las propias);
     ///   - filtros de vista "Metrado - ..." (se quitan también de las vistas que los usaban);
+    ///   - piel de encofrado de verificación (modelos genéricos "Piel de encofrado - ...") y sus materiales;
     ///   - valores de "Metrado - Material", "Metrado - Elemento", "Metrado - Peso (kg)" y
     ///     "Metrado - Encofrado (m²)" en elementos y refuerzo, y la partición + "ARBA - Origen" del refuerzo
     ///     que particionó el plugin (origen MANUAL). Los elementos con origen de un add-in ARBA de armado
@@ -48,6 +51,8 @@ namespace ExportacionMetrados.Core.Metrado
         public List<string> TablasEliminadas { get; } = new List<string>();
         public List<string> FiltrosEliminados { get; } = new List<string>();
         public List<string> ParametrosBorrados { get; } = new List<string>();
+        /// <summary>Pieles de encofrado de verificación eliminadas.</summary>
+        public int PielesEliminadas { get; private set; }
         /// <summary>Elementos (no refuerzo) a los que se vació algún valor.</summary>
         public int ElementosLimpiados { get; private set; }
         /// <summary>Refuerzos a los que se vació algún valor.</summary>
@@ -66,6 +71,7 @@ namespace ExportacionMetrados.Core.Metrado
             if (op == null) return;
             if (op.EliminarTablas) EliminarTablas();
             if (op.EliminarFiltros) EliminarFiltros();
+            if (op.EliminarPiel) EliminarPiel();
             if (op.LimpiarValores) LimpiarValores();
             if (op.BorrarParametros) BorrarParametros();
         }
@@ -123,6 +129,12 @@ namespace ExportacionMetrados.Core.Metrado
                     Advertencias.Add($"No se pudo eliminar el filtro \"{nombre}\": {ex.Message}");
                 }
             }
+        }
+
+        private void EliminarPiel()
+        {
+            try { PielesEliminadas = PielEncofrado.Eliminar(_doc, incluirMateriales: true); }
+            catch (Exception ex) { Advertencias.Add("No se pudo eliminar la piel de encofrado: " + ex.Message); }
         }
 
         // ------------------------------------------------------------------
