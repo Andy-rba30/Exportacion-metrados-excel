@@ -8,8 +8,9 @@ namespace ExportacionMetrados
 {
     /// <summary>
     /// Punto de entrada del plugin. Añade al panel "Metrados" de la pestaña común "ARBA"
-    /// (contrato ARBA-comun) los botones de exportar a Excel, metrado automático, asignar
-    /// partición y migrar particiones y origen. La pestaña y sus paneles los crea
+    /// (contrato ARBA-comun) los botones de exportar a Excel, metrado automático, parámetros y
+    /// filtros (sin tablas, y tablas propias desde los parámetros), asignar partición y migrar
+    /// particiones y origen. La pestaña y sus paneles los crea
     /// <see cref="ArbaRibbon"/>, el mismo código que usan los add-ins de armado, así todos
     /// comparten una sola pestaña sin importar cuál cargue primero.
     /// </summary>
@@ -70,6 +71,24 @@ namespace ExportacionMetrados
                 Image = CargarIcono("metrado16.png"),
             };
 
+            var datosParametros = new PushButtonData(
+                "ARBA_Metrados_Parametros",
+                "Parámetros\ny filtros",
+                rutaEnsamblado,
+                typeof(ParametrosMetradoCommand).FullName)
+            {
+                ToolTip = "Escribe los parámetros del metrado (\"Metrado - Material\", \"Metrado - Elemento\", \"Metrado - Peso (kg)\", particiones) " +
+                          "y crea los filtros de vista por colores sin crear tablas; después crea tablas propias con los valores que usted " +
+                          "haya puesto en esos parámetros.",
+                LongDescription = "Paso 1: lo mismo que el metrado automático pero sin tablas ni Excel, para poder cambiar a mano " +
+                                  "\"Metrado - Material\" y \"Metrado - Elemento\" en los elementos que quiera (por ejemplo ESCALERAS). " +
+                                  "Paso 2: lee los valores de esos dos parámetros que hay en el modelo y crea una tabla de planificación " +
+                                  "por cada combinación elegida, filtrada por esos valores, aparte de las tablas predeterminadas y sin " +
+                                  "reescribir ningún parámetro.",
+                LargeImage = ArbaRibbon.IconMetrados(32),
+                Image = ArbaRibbon.IconMetrados(16),
+            };
+
             var datosParticion = new PushButtonData(
                 "ARBA_Metrados_Particion",
                 "Asignar\npartición",
@@ -106,6 +125,7 @@ namespace ExportacionMetrados
 
             ArbaRibbon.AddMetrados(application, datosExportar);
             ArbaRibbon.AddMetrados(application, datosMetrado);
+            ArbaRibbon.AddMetrados(application, datosParametros);
             ArbaRibbon.AddMetrados(application, datosParticion);
             ArbaRibbon.AddMetrados(application, datosMigrar);
         }

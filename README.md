@@ -15,6 +15,10 @@ Plugin para Autodesk Revit, escrito en C#, que exporta las **tablas de planifica
   directamente el modelo, sin necesitar tablas de planificación.
 - Filtros de vista por colores (opcionales) para comprobar visualmente qué elementos entran en cada tabla:
   concreto, acero estructural y refuerzo por partición, cada uno con su color, aplicados a la vista activa.
+- Botón **Parámetros y filtros**: escribe los mismos parámetros que el metrado automático y crea los filtros
+  de colores, pero **sin crear tablas**, para poder cambiar a mano `Metrado - Material` y `Metrado - Elemento`
+  (por ejemplo `ESCALERAS`); después lee los valores que haya en el modelo y crea **tablas propias** con ellos,
+  aparte de las predeterminadas.
 - Integrado con el **contrato ARBA-comun** (`external/ARBA-comun`, versión 1.0.0): comparte con los add-ins de
   armado ARBA la pestaña **ARBA** de la cinta, los ocho parámetros compartidos con GUID fijo (`ARBA - Origen`,
   `ARBA - Código`, `ARBA - Anfitrión`, `Metrado - Partida`, `Metrado - Material`, `Metrado - Peso (kg)`,
@@ -31,11 +35,12 @@ ExportacionMetrados.sln
 NOTAS-ARBA-COMUN.md                Lo que el contrato ARBA-comun no cubre o conviene revisar (visto al integrarlo)
 external/ARBA-comun/               Submódulo git: código común y contrato ARBA (parámetros, partición, cinta)
 src/ExportacionMetrados/
-├── App.cs                         Añade los cuatro botones al panel "Metrados" de la pestaña común "ARBA"
+├── App.cs                         Añade los cinco botones al panel "Metrados" de la pestaña común "ARBA"
 ├── ExportarMetradosCommand.cs     Comando 1: exporta las tablas de planificación elegidas
 ├── MetradoAutomaticoCommand.cs    Comando 2: metrado automático de concreto y acero
-├── AsignarParticionCommand.cs     Comando 3: partición del acero no creado por ARBA ("VIGAS - MAN-V1")
-├── MigrarParticionesCommand.cs    Comando 4: migra particiones antiguas y origen al contrato (código común)
+├── ParametrosMetradoCommand.cs    Comando 3: parámetros y filtros sin tablas; tablas propias desde los parámetros
+├── AsignarParticionCommand.cs     Comando 4: partición del acero no creado por ARBA ("VIGAS - MAN-V1")
+├── MigrarParticionesCommand.cs    Comando 5: migra particiones antiguas y origen al contrato (código común)
 ├── ExportacionMetrados.addin      Manifiesto que Revit lee para cargar el plugin
 ├── Core/
 │   ├── LectorTablas.cs            Lee las tablas de Revit (encabezados y cuerpo)
@@ -46,12 +51,14 @@ src/ExportacionMetrados/
 │       ├── ClasificadorElementos.cs Parámetros del contrato (Material, Peso, Elemento...), grupos, particiones MAN
 │       ├── GeneradorTablasRevit.cs Crea las tablas de planificación de metrado en el proyecto
 │       ├── GeneradorFiltrosVista.cs Filtros de vista por colores para comprobar el metrado
+│       ├── LectorCombinaciones.cs Lee los valores de "Metrado - Material" / "Metrado - Elemento" del modelo (tablas propias)
 │       ├── GestorSubproyectos.cs  Reserva de subproyectos en modelos compartidos
 │       ├── ExportadorMetrado.cs   Escribe las hojas Resumen, Concreto, Acero estructural, Acero y detalle
 │       └── ModelosMetrado.cs      Opciones, grupos (incluido Misceláneos) y resultados del metrado
 ├── UI/
 │   ├── SeleccionTablasWindow.xaml Ventana de selección de tablas
 │   ├── MetradoAutomaticoWindow.xaml Ventana de opciones del metrado automático
+│   ├── ParametrosMetradoWindow.xaml Ventana de "Parámetros y filtros" (dos pestañas: parámetros / tablas propias)
 │   ├── AsignarParticionWindow.xaml Ventana de "Asignar partición"
 │   └── TablaItem.cs               Modelo de cada fila de la lista
 └── Resources/                     Iconos de los botones
@@ -133,10 +140,11 @@ Si prefiere no usar la copia automática, copie `ExportacionMetrados.addin` a
 ## Uso
 
 1. Abra el proyecto en Revit.
-2. Vaya a la pestaña **ARBA** (la comparten todos los add-ins ARBA), panel **Metrados**. Hay cuatro botones:
+2. Vaya a la pestaña **ARBA** (la comparten todos los add-ins ARBA), panel **Metrados**. Hay cinco botones:
    **Exportar a Excel** (exporta tablas de planificación ya existentes), **Metrado automático** (crea las tablas
-   de metrado en Revit y opcionalmente las exporta, ver más abajo), **Asignar partición** y **Migrar particiones
-   y origen** (ver sus apartados). Pulse **Exportar a Excel**.
+   de metrado en Revit y opcionalmente las exporta, ver más abajo), **Parámetros y filtros** (parámetros y
+   filtros sin tablas, y tablas propias a partir de los parámetros), **Asignar partición** y **Migrar
+   particiones y origen** (ver sus apartados). Pulse **Exportar a Excel**.
 3. Marque las tablas que desea exportar (si la vista activa es una tabla, aparece marcada).
    Puede filtrar por nombre o categoría y usar **Todas** / **Ninguna**.
 4. Ajuste las opciones:
@@ -329,7 +337,56 @@ función aparte para tablas que ya existen en el proyecto.)
   "masa por unidad de longitud"). Si el tipo no tiene ese parámetro se calcula como π·d²/4 × densidad
   (7850 kg/m³ por defecto). Las mallas usan la masa de hoja cortada que calcula Revit.
 
-## Asignar partición (tercer botón)
+## Parámetros y filtros, y tablas propias (tercer botón)
+
+Para quien quiere tablas distintas de las predeterminadas: el botón **Parámetros y filtros** separa en dos
+pasos lo que el metrado automático hace de una vez, sin tocar nada de ese otro botón.
+
+**Pestaña 1 · Parámetros y filtros (sin tablas)**. Escribe en el modelo exactamente los mismos parámetros
+que el metrado automático —`Metrado - Material` (CONCRETO / ACERO ESTRUCTURAL / MADERA / OTRO),
+`Metrado - Elemento` (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS, CONEXIONES, OTROS, MISCELANEOS; en el
+refuerzo, el grupo de su anfitrión), `Metrado - Peso (kg)` de armaduras y perfiles, la partición
+`CATEGORIA - MAN-marca` y `ARBA - Origen = MANUAL` del refuerzo sin origen ARBA— y crea y aplica los mismos
+filtros de vista por colores, pero **no crea ninguna tabla**. Opciones propias de este paso:
+
+- **Conservar `Metrado - Material` ya escrito** y **conservar `Metrado - Elemento` ya escrito** (marcadas por
+  defecto): solo se rellenan los elementos y armaduras que tengan el parámetro vacío, así los textos que usted
+  haya escrito a mano se respetan al repetir el paso (por ejemplo tras modelar elementos nuevos). Sin marcar,
+  se vuelve a clasificar todo, igual que hace el metrado automático.
+- Incluir o no el acero de refuerzo; rellenar o sobrescribir particiones; crear los filtros de vista; reservar
+  subproyectos en modelos compartidos; parámetro de peso por metro y densidades.
+
+Después, en Revit, cambie a mano `Metrado - Material` y/o `Metrado - Elemento` en los elementos o armaduras
+que quiera separar en una tabla propia (desde sus propiedades, o en bloque desde una tabla con esas columnas):
+por ejemplo `Metrado - Elemento = ESCALERAS` en los suelos y vigas de una escalera, `MUROS DE CONTENCION` en
+ciertos muros, o `Metrado - Material = CONCRETO F'C 280` en las columnas de un f'c distinto.
+
+**Pestaña 2 · Tablas desde los parámetros**. Lee todos los valores que tienen `Metrado - Material` y
+`Metrado - Elemento` en los elementos de las categorías del contrato y en el refuerzo, y los muestra como
+**combinaciones** (material + elemento en los elementos; solo elemento en el refuerzo) con sus categorías de
+Revit y cuántos elementos tienen cada una. Las combinaciones que ya cubren las tablas predeterminadas aparecen
+como "Predeterminada" y sin marcar; las que llevan un texto suyo, como "Propia" y marcadas (botones **Todas**,
+**Ninguna**, **Solo propias**). Al pulsar **Crear tablas** se crea una tabla por cada combinación marcada,
+filtrada por esos valores **exactos** (un valor vacío se filtra como "sin valor") y **sin reescribir ningún
+parámetro**:
+
+| Combinación | Tabla | Contenido |
+|---|---|---|
+| Elementos, material que habla de concreto (`CONCRETO`, `CONCRETO F'C 280`, `HORMIGÓN`...) | `Metrado concreto f'c 280 - ESCALERAS` (`Metrado <material en minúsculas> - <elemento>`) | Elemento (familia y tipo), Material, Cantidad, Longitud, Área, Espesor, Volumen; por tipo (columnas y muros, además por nivel); total general |
+| Elementos, cualquier otro material | `Metrado acero estructural - BARANDAS` | Elemento, Material, Cantidad, Longitud, Área de sección, Volumen, **Peso (kg)**; igual |
+| Refuerzo | `Metrado acero - ESCALERAS` | Partición (encabezado y pie con totales), Tipo de barra, Diámetro, N° barras, Longitud total, Peso unitario, Peso (kg); total general |
+
+Si una combinación de elementos abarca varias categorías de Revit (una escalera con suelos y vigas) se crea una
+tabla **por categoría**, `Metrado concreto - ESCALERAS - Suelos` y `... - Armazón estructural`, porque las tablas
+de varias categorías de Revit no exponen volumen ni longitud. Las tablas existentes con el mismo nombre se
+reutilizan salvo que marque "Regenerar". Estas tablas se exportan con el botón **Exportar a Excel** como
+cualquier otra.
+
+Tenga en cuenta que el **Metrado automático** siempre recalcula `Metrado - Elemento` (y `Metrado - Material`
+salvo que marque "Conservar la clasificación"), así que al ejecutarlo los textos propios vuelven al grupo
+estándar; para mantenerlos, use la pestaña 1 de este botón con las opciones "Conservar" marcadas.
+
+## Asignar partición (cuarto botón)
 
 Escribe el parámetro **Partición** del acero de refuerzo que no creó ningún add-in ARBA, sin pasar por el metrado:
 
@@ -347,7 +404,7 @@ Escribe el parámetro **Partición** del acero de refuerzo que no creó ningún 
 Las tablas de acero y la general se agrupan por este parámetro, así que basta con mantenerlo al día. Los
 parámetros del contrato se crean si faltan.
 
-## Migrar particiones y origen (cuarto botón)
+## Migrar particiones y origen (quinto botón)
 
 Para modelos armados con versiones de los add-ins ARBA anteriores al contrato. Lo aporta el código común
 (`ArbaMigrateCommandBase`) y migra **sin rearmar**:
