@@ -78,6 +78,10 @@
                     <CheckBox x:Name="ChkParametro" IsChecked="True"
                               Content="Escribir el resultado en el parámetro &quot;Metrado - Encofrado (m²)&quot; de cada elemento (se crea si falta)"
                               ToolTip="Parámetro compartido de ejemplar, vinculado a las categorías de concreto. Las tablas de Revit lo suman." />
+                    <CheckBox x:Name="ChkPiel" IsChecked="True"
+                              ToolTip="Por cada elemento metrado crea un modelo genérico auxiliar llamado &quot;Piel de encofrado - &lt;grupo&gt;&quot; con un sólido de 5 mm sobre cada cara que se encofra, al que se le resta exactamente lo que está en contacto con los vecinos: lo que se ve es lo que se metró. Cada grupo tiene su material y color (Vigas azul, Columnas rojo, Cimentaciones marrón, Losas verde, Muros morado), visibles en vistas sombreadas. Las caras curvas se pintan enteras, sin descuentos. Se reemplazan en cada cálculo y se quitan con &quot;Limpiar modelo&quot;; el metrado las ignora.">
+                        <TextBlock TextWrapping="Wrap" Text="Crear la piel de encofrado de verificación: un sólido fino sobre cada cara que se encofra, descontados los contactos, con un color por elemento (modelos genéricos auxiliares; se reemplazan en cada cálculo)" />
+                    </CheckBox>
                     <CheckBox x:Name="ChkTablas" IsChecked="True" Checked="ChkTablas_Changed" Unchecked="ChkTablas_Changed"
                               Content="Crear las tablas &quot;Metrado encofrado - Vigas / Columnas / Cimentaciones / Losas / Muros&quot;"
                               ToolTip="Elemento, Material, Cantidad y Encofrado (m²) con total, filtradas por &quot;Metrado - Material&quot; = CONCRETO y &quot;Metrado - Elemento&quot; = grupo (ejecute antes Metrado automático o Parámetros y filtros para que esos parámetros estén escritos). Columnas y muros, además por nivel." />

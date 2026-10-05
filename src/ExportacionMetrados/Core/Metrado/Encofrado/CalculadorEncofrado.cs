@@ -40,6 +40,8 @@ namespace ExportacionMetrados.Core.Metrado.Encofrado
         private readonly OpcionesEncofrado _op;
         /// <summary>Tolerancia de contacto en unidades internas (pies): el prisma va de -tol a +tol.</summary>
         private readonly double _tol;
+        /// <summary>Espesor de la piel de verificación en unidades internas.</summary>
+        private readonly double _espesorPiel;
         private readonly Dictionary<ElementId, Level> _cacheNiveles = new Dictionary<ElementId, Level>();
         private readonly SolidCurveIntersectionOptions _dentro = new SolidCurveIntersectionOptions
         {
@@ -73,6 +75,7 @@ namespace ExportacionMetrados.Core.Metrado.Encofrado
             _op = opciones ?? throw new ArgumentNullException(nameof(opciones));
             double mm = Math.Max(1, _op.ToleranciaContactoMm);
             _tol = UnitUtils.ConvertToInternalUnits(mm, UnitTypeId.Millimeters);
+            _espesorPiel = UnitUtils.ConvertToInternalUnits(PielEncofrado.EspesorMm, UnitTypeId.Millimeters);
         }
 
         public ResultadoEncofrado Calcular()
@@ -91,6 +94,8 @@ namespace ExportacionMetrados.Core.Metrado.Encofrado
             {
                 try
                 {
+                    // La piel de verificación de un cálculo anterior no es concreto ni contexto.
+                    if (PielEncofrado.EsPiel(e)) continue;
                     CategoriaMetrado grupo = ClasificadorElementos.GrupoDe(_doc, e, _op.Catalogo);
                     if (grupo == null) continue;
                     if (ClasificadorElementos.ClasificacionActual(_doc, e) != ClasificadorElementos.ValorConcreto) continue;
@@ -232,19 +237,43 @@ namespace ExportacionMetrados.Core.Metrado.Encofrado
                     if (clase == CaraEncofrado.Lateral) r.LateralBrutaM2 += M2(area);
                     else r.FondoBrutaM2 += M2(area);
 
-                    if (candidatosElemento.Count == 0) continue;
+                    // Piel de verificación: prisma fino hacia fuera sobre la cara plana, o sus triángulos si es curva.
+                    Solid piel = null;
+                    if (_op.CrearPiel)
+                    {
+                        if (plana) piel = PrismaPiel((PlanarFace)cara, normal);
+                        else TriangulosPiel(cara, invertir, r);
+                    }
 
-                    BoundingBoxXYZ cajaCara = CajaDeCara(cara, 2 * _tol);
-                    if (cajaCara == null) continue;
-                    var candidatos = candidatosElemento
-                        .Where(v => !ReferenceEquals(v.Solido, solido) && Intersecan(v.Caja, cajaCara))
-                        .ToList();
-                    if (candidatos.Count == 0) continue;
+                    List<SolidoVecino> candidatos = null;
+                    if (candidatosElemento.Count > 0)
+                    {
+                        BoundingBoxXYZ cajaCara = CajaDeCara(cara, 2 * _tol);
+                        if (cajaCara != null)
+                        {
+                            candidatos = candidatosElemento
+                                .Where(v => !ReferenceEquals(v.Solido, solido) && Intersecan(v.Caja, cajaCara))
+                                .ToList();
+                        }
+                    }
 
-                    double contacto = Math.Min(area, Contacto(cara, normal, plana, invertir, candidatos, r, clase));
-                    if (contacto <= 0) continue;
-                    if (clase == CaraEncofrado.Lateral) r.DescuentoLateralM2 += M2(contacto);
-                    else r.DescuentoFondoM2 += M2(contacto);
+                    if (candidatos != null && candidatos.Count > 0)
+                    {
+                        double contacto = Math.Min(area, Contacto(cara, normal, plana, invertir, candidatos, r, clase, ref piel, out bool pielExacta));
+                        if (contacto > 0)
+                        {
+                            if (clase == CaraEncofrado.Lateral) r.DescuentoLateralM2 += M2(contacto);
+                            else r.DescuentoFondoM2 += M2(contacto);
+                            // La piel de una cara curva o medida por muestreo se pinta entera, sin el descuento.
+                            if (_op.CrearPiel && !pielExacta) r.PielCarasSinDescuento++;
+                        }
+                    }
+
+                    if (piel != null)
+                    {
+                        if (piel.Volume > 1e-12) r.PielSolidos.Add(piel);
+                        else piel.Dispose();
+                    }
                 }
             }
 
@@ -262,14 +291,23 @@ namespace ExportacionMetrados.Core.Metrado.Encofrado
         // Contacto con los vecinos
         // ------------------------------------------------------------------
 
-        /// <summary>Superficie de la cara (unidades internas) en contacto con alguno de los candidatos.</summary>
+        /// <summary>
+        /// Superficie de la cara (unidades internas) en contacto con alguno de los candidatos. Si hay piel de
+        /// verificación (<paramref name="piel"/>) y el cálculo es exacto (cara plana por booleanos), se le
+        /// resta la huella de cada contacto; <paramref name="pielExacta"/> dice si fue así.
+        /// </summary>
         private double Contacto(Face cara, XYZ normal, bool plana, bool invertir, List<SolidoVecino> candidatos,
-            ElementoEncofrado r, CaraEncofrado clase)
+            ElementoEncofrado r, CaraEncofrado clase, ref Solid piel, out bool pielExacta)
         {
+            pielExacta = false;
             if (plana)
             {
-                double? exacto = ContactoPorBooleano((PlanarFace)cara, normal, candidatos, r, clase);
-                if (exacto.HasValue) return exacto.Value;
+                double? exacto = ContactoPorBooleano((PlanarFace)cara, normal, candidatos, r, clase, ref piel);
+                if (exacto.HasValue)
+                {
+                    pielExacta = true;
+                    return exacto.Value;
+                }
             }
             else
             {
@@ -285,7 +323,8 @@ namespace ExportacionMetrados.Core.Metrado.Encofrado
         /// la superficie en contacto. Los resultados de varios vecinos se unen para no contar dos
         /// veces un mismo punto. Null si la geometría no lo permite (se recurre al muestreo).
         /// </summary>
-        private double? ContactoPorBooleano(PlanarFace cara, XYZ normal, List<SolidoVecino> candidatos, ElementoEncofrado r, CaraEncofrado clase)
+        private double? ContactoPorBooleano(PlanarFace cara, XYZ normal, List<SolidoVecino> candidatos, ElementoEncofrado r, CaraEncofrado clase,
+            ref Solid piel)
         {
             Solid prisma;
             try
@@ -329,6 +368,7 @@ namespace ExportacionMetrados.Core.Metrado.Encofrado
                     }
 
                     double areaVecino = AreaCarasParalelas(interseccion, normal);
+                    if (piel != null && areaVecino > 1e-9) RestarHuella(ref piel, interseccion, cara, normal, r);
                     if (areaVecino > 1e-9)
                     {
                         contactos.Add(new ContactoEncofrado
@@ -386,6 +426,102 @@ namespace ExportacionMetrados.Core.Metrado.Encofrado
                 if (f is PlanarFace pf && pf.FaceNormal.DotProduct(normal) > Paralelas) area += pf.Area;
             }
             return area;
+        }
+
+        // ------------------------------------------------------------------
+        // Piel de verificación
+        // ------------------------------------------------------------------
+
+        /// <summary>Prisma fino hacia fuera (0 a espesor de la piel) sobre la cara plana; null si la geometría no lo permite.</summary>
+        private Solid PrismaPiel(PlanarFace cara, XYZ normal)
+        {
+            try
+            {
+                Solid s = GeometryCreationUtilities.CreateExtrusionGeometry(cara.GetEdgesAsCurveLoops(), normal, _espesorPiel);
+                if (s != null && s.Volume > 1e-12) return s;
+                s?.Dispose();
+            }
+            catch (Exception) { }
+            return null;
+        }
+
+        /// <summary>
+        /// Resta a la piel la huella de un contacto: cada cara del sólido de intersección paralela a la cara
+        /// original (la superficie en contacto) se extruye de -tolerancia a +tolerancia + espesor y se
+        /// descuenta de la piel. Si una resta falla, la piel conserva esa zona y se anota.
+        /// </summary>
+        private void RestarHuella(ref Solid piel, Solid interseccion, PlanarFace cara, XYZ normal, ElementoEncofrado r)
+        {
+            foreach (Face f in interseccion.Faces)
+            {
+                if (!(f is PlanarFace pf) || pf.FaceNormal.DotProduct(normal) <= Paralelas || pf.Area < 1e-9) continue;
+                Solid huella = null;
+                try
+                {
+                    double distancia = (pf.Origin - cara.Origin).DotProduct(normal);
+                    Transform alPlanoInterior = Transform.CreateTranslation(normal.Multiply(-distancia - _tol));
+                    var bucles = pf.GetEdgesAsCurveLoops().Select(b => CurveLoop.CreateViaTransform(b, alPlanoInterior)).ToList();
+                    huella = GeometryCreationUtilities.CreateExtrusionGeometry(bucles, normal, 2 * _tol + _espesorPiel);
+                    _booleanos++;
+                    Solid resto = BooleanOperationsUtils.ExecuteBooleanOperation(piel, huella, BooleanOperationsType.Difference);
+                    if (resto == null) continue;
+                    piel.Dispose();
+                    piel = resto;
+                }
+                catch (Exception)
+                {
+                    r.PielCarasSinDescuento++;
+                }
+                finally
+                {
+                    huella?.Dispose();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Piel de una cara curva: sus triángulos desplazados 1 mm hacia fuera (para que no coincidan con la
+        /// cara del elemento), orientados hacia fuera. Sin descuentos: la cara se pinta entera.
+        /// </summary>
+        private static void TriangulosPiel(Face cara, bool invertir, ElementoEncofrado r)
+        {
+            try
+            {
+                Mesh malla = cara.Triangulate();
+                if (malla == null) return;
+                double separacion = UnitUtils.ConvertToInternalUnits(1, UnitTypeId.Millimeters);
+                for (int i = 0; i < malla.NumTriangles; i++)
+                {
+                    MeshTriangle t = malla.get_Triangle(i);
+                    XYZ a = t.get_Vertex(0), b = t.get_Vertex(1), c = t.get_Vertex(2);
+                    XYZ n = (b - a).CrossProduct(c - a);
+                    if (n.GetLength() < 1e-12) continue;
+                    n = n.Normalize();
+
+                    XYZ centro = (a + b + c) / 3;
+                    try
+                    {
+                        IntersectionResult proyeccion = cara.Project(centro);
+                        if (proyeccion != null)
+                        {
+                            XYZ normalCara = cara.ComputeNormal(proyeccion.UVPoint);
+                            if (invertir) normalCara = normalCara.Negate();
+                            if (n.DotProduct(normalCara) < 0)
+                            {
+                                n = n.Negate();
+                                XYZ aux = b;
+                                b = c;
+                                c = aux;
+                            }
+                        }
+                    }
+                    catch (Exception) { }
+
+                    XYZ d = n.Multiply(separacion);
+                    r.PielTriangulos.Add(new[] { a + d, b + d, c + d });
+                }
+            }
+            catch (Exception) { }
         }
 
         /// <summary>

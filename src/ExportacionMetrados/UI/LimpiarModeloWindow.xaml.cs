@@ -18,6 +18,7 @@ namespace ExportacionMetrados.UI
         {
             Opciones.EliminarFiltros = ChkFiltros.IsChecked == true;
             Opciones.EliminarTablas = ChkTablas.IsChecked == true;
+            Opciones.EliminarPiel = ChkPiel.IsChecked == true;
             Opciones.LimpiarValores = ChkValores.IsChecked == true;
             Opciones.BorrarParametros = ChkParametros.IsChecked == true;
 

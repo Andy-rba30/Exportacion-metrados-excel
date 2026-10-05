@@ -116,6 +116,7 @@ namespace ExportacionMetrados.UI
             _opciones.DescontarContactos = ChkDescontar.IsChecked == true;
             _opciones.ToleranciaContactoMm = tolerancia;
             _opciones.EscribirParametro = ChkParametro.IsChecked == true;
+            _opciones.CrearPiel = ChkPiel.IsChecked == true;
             _opciones.CrearTablas = crearTablas;
             _opciones.TablaGeneral = ChkTablaGeneral.IsChecked == true;
             _opciones.RegenerarTablasExistentes = ChkRegenerar.IsChecked == true;

@@ -113,8 +113,8 @@ namespace ExportacionMetrados
             {
                 ToolTip = "Quita del proyecto, a elección, lo que deja el plugin: las tablas \"Metrado ...\", los filtros de vista " +
                           "\"Metrado - ...\", los valores que escribe en los parámetros y los propios parámetros (dejan de salir en Propiedades).",
-                LongDescription = "Cuatro opciones para marcar: eliminar las tablas de planificación del plugin, eliminar sus filtros de vista " +
-                                  "por colores, limpiar los valores que escribe (\"Metrado - Material\", \"Metrado - Elemento\", " +
+                LongDescription = "Cinco opciones para marcar: eliminar las tablas de planificación del plugin, eliminar sus filtros de vista " +
+                                  "por colores, eliminar la piel de encofrado de verificación, limpiar los valores que escribe (\"Metrado - Material\", \"Metrado - Elemento\", " +
                                   "\"Metrado - Peso (kg)\", \"Metrado - Encofrado (m²)\" y las particiones MAN) y borrar del proyecto los " +
                                   "parámetros compartidos que crea. Los valores escritos por los add-ins ARBA de armado se respetan. " +
                                   "Se puede deshacer con Ctrl+Z.",
