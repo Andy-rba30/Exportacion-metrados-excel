@@ -114,6 +114,7 @@ El botón **Metrado de encofrado** usa el panel `Encofrado` del contrato (reserv
 ya lo describe como "Herramientas de metrado de encofrado") con un botón suelto `ARBA_Encofrado_Metrado`
 (`ArbaRibbon.AddButton(app, PanelEncofradoName, …)`), igual que los botones del panel `Metrados`. Convendría
 añadirlo a la tabla de nombres internos de `CONTRATO.md` §3.
+(Actualización: el botón pasó al panel Metrados y el panel "Encofrado" del contrato queda sin usar por este plugin.)
 
 El resultado se escribe en un parámetro compartido de ejemplar **`Metrado - Encofrado (m²)`** que **no está en el
 contrato**: el plugin lo define en `Core/Metrado/Encofrado/ParametroEncofrado.cs` como un `ArbaParam` propio

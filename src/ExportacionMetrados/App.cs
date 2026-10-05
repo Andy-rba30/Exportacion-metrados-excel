@@ -9,8 +9,8 @@ namespace ExportacionMetrados
     /// <summary>
     /// Punto de entrada del plugin. Añade al panel "Metrados" de la pestaña común "ARBA"
     /// (contrato ARBA-comun) los botones de exportar a Excel, metrado automático, parámetros y
-    /// filtros (sin tablas, y tablas propias desde los parámetros), asignar partición y limpiar
-    /// modelo. La pestaña y sus paneles los crea
+    /// filtros (sin tablas, y tablas propias desde los parámetros), asignar partición, limpiar
+    /// modelo y metrado de encofrado. La pestaña y sus paneles los crea
     /// <see cref="ArbaRibbon"/>, el mismo código que usan los add-ins de armado, así todos
     /// comparten una sola pestaña sin importar cuál cargue primero.
     /// </summary>
@@ -122,7 +122,7 @@ namespace ExportacionMetrados
                 Image = ArbaRibbon.IconMetrados(16),
             };
 
-            // Panel "Encofrado" del contrato (reservado para herramientas de metrado de encofrado).
+            // Sexto botón del panel "Metrados": cálculo de encofrado según el elemento y su contexto.
             var datosEncofrado = new PushButtonData(
                 "ARBA_Encofrado_Metrado",
                 "Metrado de\nencofrado",
@@ -136,8 +136,8 @@ namespace ExportacionMetrados
                                   "columnas y la losa que apoya en ellas; en losas el fondo (salvo sobre terreno) y los bordes libres, descontando " +
                                   "las vigas; en cimentaciones solo los bordes; en muros las dos caras. Escribe \"Metrado - Encofrado (m²)\" en " +
                                   "cada elemento, crea las tablas \"Metrado encofrado - <elemento>\" y exporta a Excel el detalle de cada descuento.",
-                LargeImage = ArbaRibbon.IconEncofrado(32),
-                Image = ArbaRibbon.IconEncofrado(16),
+                LargeImage = CargarIcono("encofrado32.png"),
+                Image = CargarIcono("encofrado16.png"),
             };
 
             ArbaRibbon.AddMetrados(application, datosExportar);
@@ -145,7 +145,7 @@ namespace ExportacionMetrados
             ArbaRibbon.AddMetrados(application, datosParametros);
             ArbaRibbon.AddMetrados(application, datosParticion);
             ArbaRibbon.AddMetrados(application, datosLimpiar);
-            ArbaRibbon.AddButton(application, ArbaRibbon.PanelEncofradoName, datosEncofrado);
+            ArbaRibbon.AddMetrados(application, datosEncofrado);
         }
 
         private static BitmapImage CargarIcono(string nombre)

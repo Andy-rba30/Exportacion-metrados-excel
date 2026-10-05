@@ -20,7 +20,7 @@ Plugin para Autodesk Revit, escrito en C#, que exporta las **tablas de planifica
   (por ejemplo `ESCALERAS`); después lee los valores que haya en el modelo y crea **tablas propias** con ellos,
   aparte de las predeterminadas, y con **Actualizar filtros** crea los filtros de vista de esas clasificaciones
   nuevas y actualiza los predeterminados.
-- Botón **Metrado de encofrado** (panel *Encofrado*): calcula el encofrado (m²) de vigas, columnas,
+- Botón **Metrado de encofrado**: calcula el encofrado (m²) de vigas, columnas,
   cimentaciones, losas y muros de concreto **según el elemento y su contexto**, leyendo la geometría real:
   columnas solo caras laterales descontando las vigas que llegan y la losa que las atraviesa; vigas costados y
   fondo descontando lo que entra en columnas y la losa que apoya; losas fondo y bordes descontando las vigas;
@@ -43,13 +43,13 @@ ExportacionMetrados.sln
 NOTAS-ARBA-COMUN.md                Lo que el contrato ARBA-comun no cubre o conviene revisar (visto al integrarlo)
 external/ARBA-comun/               Submódulo git: código común y contrato ARBA (parámetros, partición, cinta)
 src/ExportacionMetrados/
-├── App.cs                         Añade los cinco botones al panel "Metrados" y el de encofrado al panel "Encofrado" de la pestaña común "ARBA"
+├── App.cs                         Añade los seis botones al panel "Metrados" de la pestaña común "ARBA"
 ├── ExportarMetradosCommand.cs     Comando 1: exporta las tablas de planificación elegidas
 ├── MetradoAutomaticoCommand.cs    Comando 2: metrado automático de concreto y acero
 ├── ParametrosMetradoCommand.cs    Comando 3: parámetros y filtros sin tablas; tablas propias desde los parámetros
 ├── AsignarParticionCommand.cs     Comando 4: partición del acero no creado por ARBA ("VIGAS - MAN-V1")
 ├── LimpiarModeloCommand.cs        Comando 5: limpia tablas, filtros, valores y parámetros del plugin
-├── MetradoEncofradoCommand.cs     Comando 6 (panel Encofrado): metrado de encofrado según el elemento y su contexto
+├── MetradoEncofradoCommand.cs     Comando 6: metrado de encofrado según el elemento y su contexto
 ├── ExportacionMetrados.addin      Manifiesto que Revit lee para cargar el plugin
 ├── Core/
 │   ├── LectorTablas.cs            Lee las tablas de Revit (encabezados y cuerpo)
@@ -156,12 +156,11 @@ Si prefiere no usar la copia automática, copie `ExportacionMetrados.addin` a
 ## Uso
 
 1. Abra el proyecto en Revit.
-2. Vaya a la pestaña **ARBA** (la comparten todos los add-ins ARBA), panel **Metrados**. Hay cinco botones:
+2. Vaya a la pestaña **ARBA** (la comparten todos los add-ins ARBA), panel **Metrados**. Hay seis botones:
    **Exportar a Excel** (exporta tablas de planificación ya existentes), **Metrado automático** (crea las tablas
    de metrado en Revit y opcionalmente las exporta, ver más abajo), **Parámetros y filtros** (parámetros y
-   filtros sin tablas, y tablas propias a partir de los parámetros), **Asignar partición** y **Limpiar
-   modelo** (ver sus apartados). En el panel **Encofrado** de la misma pestaña está **Metrado de
-   encofrado**. Pulse **Exportar a Excel**.
+   filtros sin tablas, y tablas propias a partir de los parámetros), **Asignar partición**, **Limpiar
+   modelo** y **Metrado de encofrado** (como sexto botón; ver sus apartados). Pulse **Exportar a Excel**.
 3. Marque las tablas que desea exportar (si la vista activa es una tabla, aparece marcada).
    Puede filtrar por nombre o categoría y usar **Todas** / **Ninguna**.
 4. Ajuste las opciones:
@@ -458,9 +457,9 @@ Quita del proyecto, a elección, lo que deja el plugin. Cuatro casillas:
 Todo va en una sola transacción: Ctrl+Z lo deshace. Al terminar muestra el resumen (tablas, filtros y parámetros
 quitados, elementos y refuerzos vaciados, respetados de add-ins ARBA) y las advertencias.
 
-## Metrado de encofrado (panel Encofrado)
+## Metrado de encofrado
 
-El botón **Metrado de encofrado** calcula el encofrado en m² de los elementos de concreto **a partir de su
+El botón **Metrado de encofrado** (en el panel **Metrados**, como sexto botón) calcula el encofrado en m² de los elementos de concreto **a partir de su
 geometría real y de su contexto**, no con fórmulas por tipo de elemento. Para cada elemento clasificado como
 `CONCRETO` (por `Metrado - Material` o, si no está escrito, por la misma clasificación que usa el metrado
 automático):

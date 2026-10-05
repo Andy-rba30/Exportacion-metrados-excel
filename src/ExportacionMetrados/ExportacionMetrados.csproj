@@ -94,6 +94,8 @@
     <Resource Include="Resources\metrado16.png" />
     <Resource Include="Resources\particion32.png" />
     <Resource Include="Resources\particion16.png" />
+    <Resource Include="Resources\encofrado32.png" />
+    <Resource Include="Resources\encofrado16.png" />
   </ItemGroup>
 
   <!--
