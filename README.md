@@ -524,7 +524,10 @@ que una unida.
 
 ## Notas técnicas
 
-- El comando de exportación se declara con `TransactionMode.ReadOnly`: no modifica el modelo. El metrado
+- El comando de exportación no modifica el modelo: lee las tablas dentro de una transacción que se deshace al
+  terminar, porque leer las celdas de una tabla desactualizada (una de varias categorías recién creada, por
+  ejemplo) obliga a Revit a regenerarla, y en modo solo lectura eso fallaba con "Changes are disabled for the
+  active document". El metrado
   automático usa una transacción propia ("Metrado automático") solo para crear las tablas; se puede deshacer
   con Ctrl+Z.
 - El resumen del metrado y el pie de la ventana muestran la versión del contrato ARBA-comun con la que se
