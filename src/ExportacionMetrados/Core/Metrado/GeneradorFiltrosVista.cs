@@ -18,6 +18,10 @@ namespace ExportacionMetrados.Core.Metrado
     ///                                                 (tipo de anfitrión) es ese; si el parámetro
     ///                                                 no existe, por partición "empieza por
     ///                                                 ELEMENTO - " (forma del contrato ARBA)
+    ///   - "Metrado - {Material} - {Elemento}"         filtros propios (<see cref="GenerarDesdeParametros"/>):
+    ///                                                 elementos o refuerzo cuyos "Metrado - Material" y
+    ///                                                 "Metrado - Elemento" son exactamente los de una
+    ///                                                 combinación propia del modelo ("ESCALERAS"...)
     /// Los filtros quedan en el proyecto (se pueden usar en cualquier vista desde
     /// Visibilidad/Gráficos) y, si se pasa una vista, se aplican a ella con color de
     /// línea y relleno sólido (<see cref="ElegirVista"/> elige una que los admita). Debe
@@ -159,6 +163,139 @@ namespace ExportacionMetrados.Core.Metrado
             if (vista != null && filtros.Count > 0) Aplicar(vista, filtros);
         }
 
+        // ------------------------------------------------------------------
+        // Filtros desde los parámetros (valores propios de "Metrado - Material" / "Metrado - Elemento")
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Crea (o actualiza) un filtro de vista por cada combinación propia de valores de "Metrado - Material"
+        /// y "Metrado - Elemento" (las lee <see cref="LectorCombinaciones"/> del modelo; las predeterminadas se
+        /// omiten porque ya las cubren los filtros de <see cref="Generar"/>), con reglas por esos valores exactos
+        /// (un valor vacío se filtra como "sin valor"), igual que las tablas de
+        /// <see cref="GeneradorTablasRevit.GenerarDesdeParametros"/>: en los elementos,
+        /// "Metrado - {Material} - {Elemento}" ("Metrado - Concreto - ESCALERAS") sobre las categorías de Revit
+        /// de la combinación; en el refuerzo, "Metrado - Refuerzo - {Elemento}". El color se deriva del nombre,
+        /// así cada combinación conserva el suyo al repetir. Si se pasa una vista que admite filtros, se aplican
+        /// a ella. Debe llamarse dentro de una transacción abierta.
+        /// </summary>
+        public void GenerarDesdeParametros(IEnumerable<CombinacionMetrado> combinaciones, View vista)
+        {
+            if (combinaciones == null) return;
+            var filtros = new List<KeyValuePair<ParameterFilterElement, Color>>();
+
+            ElementId idMaterial = ClasificadorElementos.IdParametroMaterial(_doc);
+            ElementId idElemento = ClasificadorElementos.IdParametroElementoRefuerzo(_doc);
+            HashSet<string> predeterminados = NombresPredeterminados();
+
+            foreach (CombinacionMetrado c in combinaciones)
+            {
+                if (c == null || c.EsPredeterminada) continue;
+                string nombre = NombreFiltro(c);
+
+                // Un texto propio que coincida con un grupo del catálogo ("Vigas") no debe reescribir su filtro.
+                if (predeterminados.Contains(nombre))
+                {
+                    Advertencias.Add($"Filtro \"{nombre}\": ya existe el filtro predeterminado con ese nombre; " +
+                                     "cambie el texto de la combinación para distinguirlo.");
+                    continue;
+                }
+
+                ParameterFilterElement filtro;
+                if (c.Tipo == TipoCombinacion.Refuerzo)
+                {
+                    if (c.Elemento.Length == 0) continue;
+                    if (idElemento == null)
+                    {
+                        Advertencias.Add($"Filtro \"{nombre}\": no existe el parámetro \"" +
+                                         ClasificadorElementos.NombreParametroElementoRefuerzo + "\"; no se creó.");
+                        continue;
+                    }
+                    filtro = Crear(nombre, ClasificadorElementos.CategoriasRefuerzo, idElemento, c.Elemento);
+                }
+                else
+                {
+                    if (idMaterial == null || idElemento == null)
+                    {
+                        Advertencias.Add($"Filtro \"{nombre}\": no existen los parámetros \"" + ClasificadorElementos.NombreParametroMaterial +
+                                         "\" y \"" + ClasificadorElementos.NombreParametroElementoRefuerzo + "\"; no se creó.");
+                        continue;
+                    }
+                    var reglas = new List<FilterRule> { ReglaValor(idMaterial, c.Material), ReglaValor(idElemento, c.Elemento) };
+                    filtro = Crear(nombre, c.Categorias.Keys, new[] { idMaterial, idElemento }, reglas);
+                }
+                Agregar(filtros, filtro, ColorPropio(nombre));
+            }
+
+            if (vista != null && filtros.Count > 0) Aplicar(vista, filtros);
+        }
+
+        /// <summary>
+        /// Nombre del filtro propio de una combinación: "Metrado - Refuerzo - {Elemento}" en el refuerzo; en los
+        /// elementos, "Metrado - {Material} - {Elemento}" con el material escrito como en los predeterminados
+        /// ("Concreto", "Acero estructural", "Concreto f'c 280"; "Elementos" si está vacío) y el elemento tal
+        /// cual se escribió ("(vacío)" si no tiene).
+        /// </summary>
+        public static string NombreFiltro(CombinacionMetrado c)
+        {
+            if (c.Tipo == TipoCombinacion.Refuerzo) return PrefijoRefuerzo + c.ElementoTexto;
+            string material = c.Material.Length > 0 ? c.Material : "Elementos";
+            material = material.Substring(0, 1).ToUpperInvariant() + material.Substring(1).ToLowerInvariant();
+            return "Metrado - " + material + " - " + c.ElementoTexto;
+        }
+
+        /// <summary>Nombres de los filtros predeterminados (<see cref="Generar"/>), sin distinguir mayúsculas.</summary>
+        private static HashSet<string> NombresPredeterminados()
+        {
+            var nombres = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (CategoriaMetrado cat in CategoriaMetrado.Predeterminadas())
+            {
+                nombres.Add(PrefijoConcreto + cat.Nombre);
+                nombres.Add(PrefijoAceroEstructural + cat.Nombre);
+                nombres.Add(PrefijoRefuerzo + cat.NombreParticion);
+            }
+            return nombres;
+        }
+
+        /// <summary>Regla "parámetro = valor" o, si el texto está vacío, "sin valor" (como el filtro de las tablas).</summary>
+        private static FilterRule ReglaValor(ElementId idParametro, string valor) =>
+            string.IsNullOrEmpty(valor)
+                ? ParameterFilterRuleFactory.CreateHasNoValueParameterRule(idParametro)
+                : ArbaRevit.EqualsRule(idParametro, valor);
+
+        /// <summary>
+        /// Color de un filtro propio: tono derivado del nombre con un hash estable (el de .NET cambia entre
+        /// procesos), con saturación y brillo fijos; así cada combinación conserva su color al repetir.
+        /// </summary>
+        private static Color ColorPropio(string nombre)
+        {
+            uint hash = 2166136261;
+            unchecked
+            {
+                foreach (char ch in nombre.ToUpperInvariant())
+                {
+                    hash ^= ch;
+                    hash *= 16777619;
+                }
+            }
+            return DesdeHsv(hash % 360, 0.75, 0.85);
+        }
+
+        /// <summary>Color RGB a partir de tono (0-360), saturación y valor (0-1).</summary>
+        private static Color DesdeHsv(double tono, double saturacion, double valor)
+        {
+            double c = valor * saturacion;
+            double x = c * (1 - Math.Abs(tono / 60 % 2 - 1));
+            double m = valor - c;
+            double r = 0, g = 0, b = 0;
+            if (tono < 60) { r = c; g = x; }
+            else if (tono < 120) { r = x; g = c; }
+            else if (tono < 180) { g = c; b = x; }
+            else if (tono < 240) { g = x; b = c; }
+            else if (tono < 300) { r = x; b = c; }
+            else { r = c; b = x; }
+            return new Color((byte)Math.Round((r + m) * 255), (byte)Math.Round((g + m) * 255), (byte)Math.Round((b + m) * 255));
+        }
+
         private static void Agregar(List<KeyValuePair<ParameterFilterElement, Color>> lista, ParameterFilterElement filtro, Color color)
         {
             if (filtro != null) lista.Add(new KeyValuePair<ParameterFilterElement, Color>(filtro, color));
@@ -190,6 +327,13 @@ namespace ExportacionMetrados.Core.Metrado
         /// categorías en las que <paramref name="idParametro"/> admite filtros.
         /// </summary>
         private ParameterFilterElement Crear(string nombre, IEnumerable<BuiltInCategory> categorias, ElementId idParametro,
+            IList<FilterRule> reglas) => Crear(nombre, categorias, new[] { idParametro }, reglas);
+
+        /// <summary>
+        /// Crea el filtro "{nombre}" (o actualiza el existente) con las reglas dadas sobre las
+        /// categorías en las que todos los <paramref name="idsParametros"/> admiten filtros.
+        /// </summary>
+        private ParameterFilterElement Crear(string nombre, IEnumerable<BuiltInCategory> categorias, IList<ElementId> idsParametros,
             IList<FilterRule> reglas)
         {
             var ids = new List<ElementId>();
@@ -199,9 +343,9 @@ namespace ExportacionMetrados.Core.Metrado
                 if (c != null) ids.Add(c.Id);
             }
 
-            // Dejar solo las categorías en las que el parámetro admite filtro (una malla,
+            // Dejar solo las categorías en las que los parámetros admiten filtro (una malla,
             // por ejemplo, puede no exponer la partición).
-            ids = ids.Where(id => ParametroFiltrable(id, idParametro)).ToList();
+            ids = ids.Where(id => idsParametros.All(p => ParametroFiltrable(id, p))).ToList();
             if (ids.Count == 0)
             {
                 Advertencias.Add($"Filtro \"{nombre}\": el parámetro no admite filtros en esa categoría; no se creó.");

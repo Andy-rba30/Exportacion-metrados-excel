@@ -18,7 +18,8 @@ Plugin para Autodesk Revit, escrito en C#, que exporta las **tablas de planifica
 - Botón **Parámetros y filtros**: escribe los mismos parámetros que el metrado automático y crea los filtros
   de colores, pero **sin crear tablas**, para poder cambiar a mano `Metrado - Material` y `Metrado - Elemento`
   (por ejemplo `ESCALERAS`); después lee los valores que haya en el modelo y crea **tablas propias** con ellos,
-  aparte de las predeterminadas.
+  aparte de las predeterminadas, y con **Actualizar filtros** crea los filtros de vista de esas clasificaciones
+  nuevas y actualiza los predeterminados.
 - Botón **Metrado de encofrado** (panel *Encofrado*): calcula el encofrado (m²) de vigas, columnas,
   cimentaciones, losas y muros de concreto **según el elemento y su contexto**, leyendo la geometría real:
   columnas solo caras laterales descontando las vigas que llegan y la losa que las atraviesa; vigas costados y
@@ -70,7 +71,7 @@ src/ExportacionMetrados/
 ├── UI/
 │   ├── SeleccionTablasWindow.xaml Ventana de selección de tablas
 │   ├── MetradoAutomaticoWindow.xaml Ventana de opciones del metrado automático
-│   ├── ParametrosMetradoWindow.xaml Ventana de "Parámetros y filtros" (dos pestañas: parámetros / tablas propias)
+│   ├── ParametrosMetradoWindow.xaml Ventana de "Parámetros y filtros" (dos pestañas: parámetros / tablas y filtros propios)
 │   ├── MetradoEncofradoWindow.xaml Ventana de opciones del metrado de encofrado
 │   ├── AsignarParticionWindow.xaml Ventana de "Asignar partición"
 │   └── TablaItem.cs               Modelo de cada fila de la lista
@@ -395,6 +396,16 @@ tabla **por categoría**, `Metrado concreto - ESCALERAS - Suelos` y `... - Armaz
 de varias categorías de Revit no exponen volumen ni longitud. Las tablas existentes con el mismo nombre se
 reutilizan salvo que marque "Regenerar". Estas tablas se exportan con el botón **Exportar a Excel** como
 cualquier otra.
+
+**Actualizar filtros** (al costado de **Crear tablas**). Hace lo mismo con los filtros de vista por colores, sin
+crear tablas ni reescribir parámetros: crea o actualiza los filtros predeterminados (`Metrado - Concreto - Vigas`,
+`Metrado - Refuerzo - VIGAS`..., los de los elementos marcados en la pestaña 1) y crea un filtro nuevo por cada
+combinación **propia** marcada, con los mismos valores exactos que su tabla: `Metrado - Concreto - ESCALERAS`
+(`Metrado - <Material> - <elemento>`, sobre las categorías de Revit de la combinación) o, en el refuerzo,
+`Metrado - Refuerzo - ESCALERAS`. Las combinaciones predeterminadas marcadas no reciben filtro propio porque ya
+las cubren los predeterminados. Cada filtro propio recibe un color fijo derivado de su nombre y se aplica a la
+vista activa (o a otra que admita filtros), igual que los predeterminados. Úselo cuando aparezcan clasificaciones
+nuevas (por ejemplo tras escribir `ESCALERAS` en más elementos) para que los filtros las recojan.
 
 Tenga en cuenta que el **Metrado automático** siempre recalcula `Metrado - Elemento` (y `Metrado - Material`
 salvo que marque "Conservar la clasificación"), así que al ejecutarlo los textos propios vuelven al grupo
