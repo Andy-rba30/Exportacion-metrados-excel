@@ -17,7 +17,8 @@ namespace ExportacionMetrados
     ///      mano esos parámetros (p. ej. "Metrado - Elemento" = ESCALERAS) para sus propias tablas.
     ///   2. Lee los valores de "Metrado - Material" y "Metrado - Elemento" que hay en el modelo y crea una
     ///      tabla por cada combinación elegida, filtrada por esos valores, aparte de las predeterminadas y
-    ///      sin reescribir ningún parámetro.
+    ///      sin reescribir ningún parámetro. Con "Actualizar filtros", en vez de tablas crea o actualiza
+    ///      los filtros de vista: los predeterminados y uno por cada combinación propia elegida.
     /// </summary>
     [Transaction(TransactionMode.Manual)]
     [Regeneration(RegenerationOption.Manual)]
@@ -58,9 +59,15 @@ namespace ExportacionMetrados
                 };
                 if (ventana.ShowDialog() != true) return Result.Cancelled;
 
-                return ventana.Modo == ModoParametros.TablasDesdeParametros
-                    ? CrearTablas(uidoc, ventana.Opciones, ventana.CombinacionesSeleccionadas)
-                    : EscribirParametros(uidoc, ventana.Opciones);
+                switch (ventana.Modo)
+                {
+                    case ModoParametros.TablasDesdeParametros:
+                        return CrearTablas(uidoc, ventana.Opciones, ventana.CombinacionesSeleccionadas);
+                    case ModoParametros.ActualizarFiltros:
+                        return ActualizarFiltros(uidoc, ventana.Opciones, ventana.CombinacionesSeleccionadas);
+                    default:
+                        return EscribirParametros(uidoc, ventana.Opciones);
+                }
             }
             catch (Exception ex)
             {
@@ -243,6 +250,68 @@ namespace ExportacionMetrados
                 detalle.Add("");
                 detalle.Add("Advertencias:");
                 detalle.AddRange(generador.Advertencias.Select(a => "  • " + a));
+            }
+            if (detalle.Count > 0) dialogo.ExpandedContent = string.Join("\n", detalle);
+            dialogo.Show();
+            return Result.Succeeded;
+        }
+
+        // ------------------------------------------------------------------
+        // Paso 2b: filtros de vista de los valores de los parámetros, sin tablas
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Crea o actualiza los filtros de vista por colores predeterminados (los de los elementos marcados
+        /// en la pestaña 1, como el paso 1) y crea uno por cada combinación propia marcada en la pestaña 2,
+        /// con los mismos valores exactos que su tabla. No crea tablas ni reescribe ningún parámetro.
+        /// </summary>
+        private static Result ActualizarFiltros(UIDocument uidoc, OpcionesMetrado opciones, List<CombinacionMetrado> combinaciones)
+        {
+            Document doc = uidoc.Document;
+            var advertencias = new List<string>();
+
+            // Vista para los filtros (la activa o, si no los admite, otra que sí).
+            View vista = GeneradorFiltrosVista.ElegirVista(MetradoAutomaticoCommand.VistasParaFiltros(uidoc), out string aviso);
+            if (aviso != null) advertencias.Add(aviso);
+
+            var propias = combinaciones.Where(c => !c.EsPredeterminada).ToList();
+            int cubiertas = combinaciones.Count - propias.Count;
+
+            GeneradorFiltrosVista filtros;
+            using (var t = new Transaction(doc, "Filtros de vista del metrado"))
+            {
+                t.Start();
+                filtros = new GeneradorFiltrosVista(doc, opciones);
+                filtros.Generar(vista);
+                filtros.GenerarDesdeParametros(propias, vista);
+                t.Commit();
+            }
+            advertencias.AddRange(filtros.Advertencias);
+
+            var dialogo = new TaskDialog(Titulo)
+            {
+                MainInstruction = advertencias.Count == 0 ? "Filtros de vista actualizados" : "Filtros de vista actualizados con advertencias",
+                MainContent =
+                    $"Filtros de vista por colores: {filtros.FiltrosCreados.Count} creados, {filtros.FiltrosReutilizados.Count} actualizados" +
+                    (filtros.VistaAplicada != null ? $", aplicados a la vista \"{filtros.VistaAplicada}\"" : string.Empty) + "\n" +
+                    $"Combinaciones propias marcadas (con filtro propio): {propias.Count}\n" +
+                    (cubiertas > 0 ? $"Combinaciones predeterminadas marcadas (las cubren los filtros predeterminados): {cubiertas}\n" : string.Empty) +
+                    "\nNo se creó ninguna tabla ni se modificó ningún parámetro.",
+                CommonButtons = TaskDialogCommonButtons.Close,
+            };
+
+            var detalle = new List<string>();
+            var nombres = filtros.FiltrosCreados.Concat(filtros.FiltrosReutilizados).Select(f => f.Name).ToList();
+            if (nombres.Count > 0)
+            {
+                detalle.Add("Filtros:");
+                detalle.AddRange(nombres.Select(n => "  • " + n));
+            }
+            if (advertencias.Count > 0)
+            {
+                detalle.Add("");
+                detalle.Add("Advertencias:");
+                detalle.AddRange(advertencias.Select(a => "  • " + a));
             }
             if (detalle.Count > 0) dialogo.ExpandedContent = string.Join("\n", detalle);
             dialogo.Show();

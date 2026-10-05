@@ -15,12 +15,18 @@ namespace ExportacionMetrados.UI
         ParametrosYFiltros,
         /// <summary>Crear tablas a partir de los valores de "Metrado - Material" / "Metrado - Elemento" del modelo.</summary>
         TablasDesdeParametros,
+        /// <summary>
+        /// Crear o actualizar los filtros de vista por colores: los predeterminados y uno por cada combinación
+        /// propia marcada de "Metrado - Material" / "Metrado - Elemento", sin tablas ni parámetros.
+        /// </summary>
+        ActualizarFiltros,
     }
 
     /// <summary>
     /// Ventana del comando "Parámetros y filtros": pestaña 1, escribir los parámetros del metrado y
     /// los filtros de colores sin crear tablas; pestaña 2, crear tablas propias con los valores de
-    /// "Metrado - Material" y "Metrado - Elemento" que haya en el modelo (incluidos los escritos a mano).
+    /// "Metrado - Material" y "Metrado - Elemento" que haya en el modelo (incluidos los escritos a mano)
+    /// o, con el botón "Actualizar filtros", crear o actualizar los filtros de vista de esos valores.
     /// </summary>
     public partial class ParametrosMetradoWindow : Window
     {
@@ -64,8 +70,23 @@ namespace ExportacionMetrados.UI
 
         private void Pestanas_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (BtnEjecutar == null || !ReferenceEquals(e.Source, Pestanas)) return;
-            BtnEjecutar.Content = Pestanas.SelectedIndex == 1 ? "Crear tablas" : "Escribir parámetros y filtros";
+            if (BtnEjecutar == null || BtnFiltros == null || !ReferenceEquals(e.Source, Pestanas)) return;
+            bool tablas = Pestanas.SelectedIndex == 1;
+            BtnEjecutar.Content = tablas ? "Crear tablas" : "Escribir parámetros y filtros";
+            BtnFiltros.Visibility = tablas ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        /// <summary>
+        /// "Actualizar filtros" (pestaña 2): los filtros predeterminados de los elementos marcados en la
+        /// pestaña 1 y uno por cada combinación propia marcada. No valida nada más: sin combinaciones
+        /// propias marcadas solo se actualizan los predeterminados.
+        /// </summary>
+        private void BtnFiltros_Click(object sender, RoutedEventArgs e)
+        {
+            Modo = ModoParametros.ActualizarFiltros;
+            _opciones.IncluirAcero = ChkRefuerzo.IsChecked == true;
+            _opciones.CrearFiltrosVista = true;
+            DialogResult = true;
         }
 
         private void BtnTodas_Click(object sender, RoutedEventArgs e)

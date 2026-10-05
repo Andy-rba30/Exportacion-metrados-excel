@@ -132,7 +132,7 @@
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" TextWrapping="Wrap" Foreground="Gray" Margin="0,0,0,8"
-                               Text="Lee los valores que tienen &quot;Metrado - Material&quot; y &quot;Metrado - Elemento&quot; en los elementos y armaduras del modelo y crea una tabla de planificación por cada combinación marcada, filtrada por esos valores exactos, sin reescribir ningún parámetro. Las combinaciones que ya cubren las tablas predeterminadas del metrado automático aparecen sin marcar; las propias (textos que usted escribió), marcadas. Si una combinación abarca varias categorías de Revit se crea una tabla por categoría." />
+                               Text="Lee los valores que tienen &quot;Metrado - Material&quot; y &quot;Metrado - Elemento&quot; en los elementos y armaduras del modelo y crea una tabla de planificación por cada combinación marcada, filtrada por esos valores exactos, sin reescribir ningún parámetro. Las combinaciones que ya cubren las tablas predeterminadas del metrado automático aparecen sin marcar; las propias (textos que usted escribió), marcadas. Si una combinación abarca varias categorías de Revit se crea una tabla por categoría. Con &quot;Actualizar filtros&quot; se crean o actualizan los filtros de vista por colores en vez de las tablas: los predeterminados y uno nuevo por cada combinación propia marcada." />
 
                     <DockPanel Grid.Row="1" Margin="0,0,0,6">
                         <Button DockPanel.Dock="Right" Content="Ninguna" Click="BtnNinguna_Click" />
@@ -175,6 +175,8 @@
         <DockPanel Grid.Row="1" Margin="0,10,0,0">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
                 <Button Content="Cancelar" IsCancel="True" />
+                <Button x:Name="BtnFiltros" Content="Actualizar filtros" Click="BtnFiltros_Click" MinWidth="140" Visibility="Collapsed"
+                        ToolTip="Crea o actualiza los filtros de vista por colores predeterminados (los de los elementos marcados en la pestaña 1) y crea un filtro nuevo por cada combinación propia marcada (&quot;Metrado - Concreto - ESCALERAS&quot;, &quot;Metrado - Refuerzo - ESCALERAS&quot;...), con los mismos valores exactos que su tabla, aplicados a la vista activa. No crea tablas ni reescribe parámetros." />
                 <Button x:Name="BtnEjecutar" Content="Escribir parámetros y filtros" IsDefault="True" Click="BtnEjecutar_Click" FontWeight="Bold" MinWidth="200" />
             </StackPanel>
             <TextBlock x:Name="TxtContrato" Foreground="Gray" VerticalAlignment="Center"
