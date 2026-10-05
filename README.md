@@ -370,6 +370,11 @@ filtros de vista por colores, pero **no crea ninguna tabla**. Opciones propias d
   se vuelve a clasificar todo, igual que hace el metrado automático.
 - Incluir o no el acero de refuerzo; rellenar o sobrescribir particiones; crear los filtros de vista; reservar
   subproyectos en modelos compartidos; parámetro de peso por metro y densidades.
+- **El refuerzo de los elementos cuyo `Metrado - Elemento` usted cambió a mano toma ese mismo texto** (marcada
+  por defecto): si escribió `ESCALERAS` en una viga o un suelo, sus armaduras y mallas reciben `ESCALERAS` en
+  vez del grupo del anfitrión, y así aparecen en la pestaña 2 como combinación de refuerzo propia, con su tabla
+  (`Metrado acero - ESCALERAS`) y su filtro. Solo se toca el refuerzo de esos elementos: el de los anfitriones con
+  el grupo estándar (VIGAS, LOSAS...) conserva lo que diga su partición o su anfitrión.
 
 Después, en Revit, cambie a mano `Metrado - Material` y/o `Metrado - Elemento` en los elementos o armaduras
 que quiera separar en una tabla propia (desde sus propiedades, o en bloque desde una tabla con esas columnas):

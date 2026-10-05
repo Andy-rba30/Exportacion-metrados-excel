@@ -30,7 +30,7 @@ namespace ExportacionMetrados
         private sealed class Contadores
         {
             public int Subproyectos, Clasificados, MaterialesRespetados, Particionados, ParticionesArba;
-            public int ElementosRefuerzo, ElementosGrupo, Miscelaneos, Pesados, PerfilesPesados, PesosRespetados;
+            public int ElementosRefuerzo, ElementosGrupo, Miscelaneos, Pesados, PerfilesPesados, PesosRespetados, RefuerzoPropagado;
             public bool ParametrosOk;
         }
 
@@ -149,6 +149,14 @@ namespace ExportacionMetrados
                     }
                     c.ElementosGrupo = ClasificadorElementos.RellenarElementoEnElementos(doc, categoriasBic, opciones.Categorias,
                         advertencias, out c.Miscelaneos, opciones.ConservarElemento);
+
+                    // 1b''. El refuerzo de los elementos cuyo "Metrado - Elemento" cambió el usuario a mano
+                    //       (ESCALERAS...) toma ese mismo texto; el del resto no se toca.
+                    if (opciones.IncluirAcero && opciones.PropagarElementoAlRefuerzo)
+                    {
+                        c.RefuerzoPropagado = ClasificadorElementos.PropagarElementoDelAnfitrion(doc, ClasificadorElementos.TodoElRefuerzo(doc),
+                            opciones.Categorias, advertencias);
+                    }
                 }
 
                 // 1c. Peso en kg de armaduras y perfiles (los escritos por un add-in ARBA se respetan).
@@ -182,6 +190,9 @@ namespace ExportacionMetrados
                     ? $"Refuerzos con partición asignada (CATEGORIA - MAN-marca): {c.Particionados}\n" +
                       $"Particiones de add-ins ARBA respetadas: {c.ParticionesArba}\n" +
                       $"Refuerzos con elemento anfitrión (Metrado - Elemento): {c.ElementosRefuerzo}\n" +
+                      (opciones.PropagarElementoAlRefuerzo
+                          ? $"Refuerzos con el \"Metrado - Elemento\" propio de su anfitrión (cambiado a mano): {c.RefuerzoPropagado}\n"
+                          : string.Empty) +
                       $"Refuerzos con peso actualizado: {c.Pesados}\n"
                     : string.Empty) +
                 $"Perfiles y piezas metálicas con peso actualizado: {c.PerfilesPesados}\n" +

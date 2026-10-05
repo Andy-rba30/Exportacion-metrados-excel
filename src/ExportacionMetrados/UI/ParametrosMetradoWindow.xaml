@@ -70,6 +70,10 @@
                                     <TextBlock TextWrapping="Wrap" Text="Rellenar la partición vacía del acero que no creó un add-in ARBA con la forma del contrato: CATEGORIA - MAN-marca del anfitrión (VIGAS - MAN-V1, CIMIENTOS - MAN-Z3...) y &quot;ARBA - Origen&quot; = MANUAL" />
                                 </CheckBox>
                                 <CheckBox x:Name="ChkSobrescribirParticiones" Content="Sobrescribir también las particiones que ya tengan texto (las de los add-ins ARBA nunca se tocan)" IsChecked="False" Margin="40,3,0,3" />
+                                <CheckBox x:Name="ChkPropagarElemento" IsChecked="True" Margin="20,3,0,3"
+                                          ToolTip="Si cambió a mano &quot;Metrado - Elemento&quot; en un elemento (por ejemplo ESCALERAS en una viga o un suelo), sus armaduras y mallas reciben ese mismo texto y así aparecen como combinación de refuerzo propia en la pestaña 2, con su tabla y su filtro. El refuerzo de los elementos con el grupo estándar (VIGAS, LOSAS...) no se toca.">
+                                    <TextBlock TextWrapping="Wrap" Text="El refuerzo de los elementos cuyo &quot;Metrado - Elemento&quot; usted cambió a mano toma ese mismo texto (solo el de esos elementos; el resto no se toca)" />
+                                </CheckBox>
                             </StackPanel>
                         </GroupBox>
 
