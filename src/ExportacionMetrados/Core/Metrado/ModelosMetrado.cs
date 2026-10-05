@@ -270,6 +270,13 @@ namespace ExportacionMetrados.Core.Metrado
         /// </summary>
         public bool ConservarElemento { get; set; } = false;
 
+        /// <summary>
+        /// Escribir en el refuerzo el "Metrado - Elemento" propio de su anfitrión cuando el usuario lo
+        /// cambió a mano (texto distinto del grupo estándar), para que el acero de esos elementos tenga su
+        /// propia tabla y filtro. Solo lo usa el comando "Parámetros y filtros".
+        /// </summary>
+        public bool PropagarElementoAlRefuerzo { get; set; } = false;
+
         /// <summary>Crear tablas aparte para los elementos de acero estructural (perfiles metálicos).</summary>
         public bool TablasAceroEstructural { get; set; } = true;
 

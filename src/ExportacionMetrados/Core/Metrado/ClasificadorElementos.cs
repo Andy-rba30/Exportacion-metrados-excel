@@ -558,6 +558,56 @@ namespace ExportacionMetrados.Core.Metrado
         }
 
         /// <summary>
+        /// Escribe en el refuerzo el "Metrado - Elemento" propio de su anfitrión: solo en las armaduras
+        /// cuyo anfitrión tiene un texto distinto del grupo que el plugin le escribiría
+        /// (<see cref="GrupoDe"/>), es decir, los elementos que el usuario cambió a mano (p. ej.
+        /// ESCALERAS en una viga o un suelo), para que su acero salga en la misma combinación y tenga su
+        /// propia tabla y filtro de refuerzo. El refuerzo de los anfitriones con el grupo estándar, sin
+        /// anfitrión o con el parámetro vacío no se toca. Devuelve el número de refuerzos escritos.
+        /// </summary>
+        public static int PropagarElementoDelAnfitrion(Document doc, IEnumerable<Element> refuerzo, IList<CategoriaMetrado> grupos,
+            List<string> advertencias)
+        {
+            int n = 0;
+            var valorDeAnfitrion = new Dictionary<ElementId, string>();
+
+            foreach (Element r in refuerzo)
+            {
+                try
+                {
+                    ElementId idHost = AnfitrionDe(r);
+                    if (idHost == null || idHost == ElementId.InvalidElementId) continue;
+
+                    if (!valorDeAnfitrion.TryGetValue(idHost, out string valor))
+                    {
+                        valor = null;
+                        Element host = doc.GetElement(idHost);
+                        if (host?.Category != null)
+                        {
+                            string texto = ArbaSharedParams.GetText(host, ArbaContract.Elemento).Trim();
+                            string estandar = GrupoDe(doc, host, grupos)?.NombreParticion;
+                            // Solo cuenta un texto escrito a mano: distinto del grupo que el plugin escribe.
+                            if (texto.Length > 0 && !string.Equals(texto, estandar, StringComparison.Ordinal)) valor = texto;
+                        }
+                        valorDeAnfitrion[idHost] = valor;
+                    }
+                    if (valor == null) continue;
+
+                    Parameter p = ArbaSharedParams.Get(r, ArbaContract.Elemento);
+                    if (p == null || p.IsReadOnly || p.StorageType != StorageType.String) continue;
+                    if (string.Equals(p.AsString() ?? string.Empty, valor, StringComparison.Ordinal)) continue;
+                    p.Set(valor);
+                    n++;
+                }
+                catch (Exception ex)
+                {
+                    advertencias.Add($"No se pudo escribir \"{NombreParametroElementoRefuerzo}\" del anfitrión en el refuerzo {r.Id}: {ex.Message}");
+                }
+            }
+            return n;
+        }
+
+        /// <summary>
         /// Escribe "Metrado - Elemento" en cada elemento de los grupos indicados con el
         /// nombre de su grupo (VIGAS, COLUMNAS, ..., OTROS; MISCELANEOS en los elementos con
         /// "Metrado - Partida"). Es lo que filtra las tablas de varias categorías ("Otros",

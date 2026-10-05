@@ -160,6 +160,7 @@ namespace ExportacionMetrados.UI
             _opciones.IncluirAcero = ChkRefuerzo.IsChecked == true;
             _opciones.RellenarParticiones = ChkParticiones.IsChecked == true;
             _opciones.SobrescribirParticiones = ChkSobrescribirParticiones.IsChecked == true;
+            _opciones.PropagarElementoAlRefuerzo = ChkPropagarElemento.IsChecked == true;
             _opciones.CrearFiltrosVista = ChkFiltrosVista.IsChecked == true;
             _opciones.ReservarSubproyectos = ChkSubproyectos.IsChecked == true;
             _opciones.NombreParametroPeso = TxtParametroPeso.Text?.Trim();
