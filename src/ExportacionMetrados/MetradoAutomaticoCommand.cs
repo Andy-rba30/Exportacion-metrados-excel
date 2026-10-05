@@ -173,7 +173,7 @@ namespace ExportacionMetrados
         /// demás vistas abiertas (las 3D primero) y la 3D predeterminada ("{3D}", o "{3D - usuario}"
         /// en un modelo compartido), aunque no esté abierta.
         /// </summary>
-        private static List<View> VistasParaFiltros(UIDocument uidoc)
+        internal static List<View> VistasParaFiltros(UIDocument uidoc)
         {
             Document doc = uidoc.Document;
             var vistas = new List<View> { uidoc.ActiveView };

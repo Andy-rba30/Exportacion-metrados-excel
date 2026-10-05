@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Arba.Comun;
 using Autodesk.Revit.DB;
+using ExportacionMetrados.Core.Metrado.Encofrado;
 
 namespace ExportacionMetrados.Core.Metrado
 {
@@ -906,6 +907,375 @@ namespace ExportacionMetrados.Core.Metrado
                 }
             }
             return false;
+        }
+
+        // ------------------------------------------------------------------
+        // Tablas desde los parámetros (valores propios de "Metrado - Material" / "Metrado - Elemento")
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Crea una tabla por cada combinación de valores de "Metrado - Material" y "Metrado - Elemento"
+        /// indicada (las lee <see cref="LectorCombinaciones"/> del modelo, incluidos los textos que el
+        /// usuario haya escrito a mano, p. ej. "ESCALERAS"), filtrada por esos valores exactos y sin
+        /// escribir ningún parámetro. En los elementos, una tabla por cada categoría de Revit de la
+        /// combinación (una tabla de varias categorías no expone volumen ni longitud): "Metrado
+        /// {material} - {elemento}" y, si hay varias categorías, "... - {categoría}". En el refuerzo,
+        /// "Metrado acero - {elemento}" con la misma estructura que las tablas de acero por elemento.
+        /// Las tablas existentes con el mismo nombre se reutilizan salvo que se pida regenerarlas.
+        /// Debe llamarse dentro de una transacción abierta.
+        /// </summary>
+        public List<ViewSchedule> GenerarDesdeParametros(IEnumerable<CombinacionMetrado> combinaciones)
+        {
+            var tablas = new List<ViewSchedule>();
+            if (combinaciones == null) return tablas;
+
+            foreach (CombinacionMetrado c in combinaciones)
+            {
+                if (c.Tipo == TipoCombinacion.Refuerzo)
+                {
+                    if (c.Elemento.Length == 0) continue;
+                    ViewSchedule r = CrearOReutilizar(c.NombreTabla, () => CrearTablaRefuerzoPorValor(c.Elemento));
+                    if (r != null) tablas.Add(r);
+                    continue;
+                }
+
+                bool variasCategorias = c.Categorias.Count > 1;
+                foreach (BuiltInCategory bic in c.Categorias.Keys.ToList())
+                {
+                    string nombre = variasCategorias
+                        ? c.NombreTabla + " - " + LectorCombinaciones.NombreCategoria(_doc, bic)
+                        : c.NombreTabla;
+                    ViewSchedule t = CrearOReutilizar(nombre, () => CrearTablaPorValores(c, bic));
+                    if (t != null) tablas.Add(t);
+                }
+            }
+            return tablas;
+        }
+
+        /// <summary>True si el texto de "Metrado - Material" habla de concreto (la tabla muestra volumen en vez de peso).</summary>
+        private static bool EsTextoDeConcreto(string material)
+        {
+            string m = material ?? string.Empty;
+            return m.IndexOf("CONCRETO", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   m.IndexOf("HORMIG", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   m.IndexOf("CONCRETE", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// Tabla de una categoría de Revit con los elementos cuyos "Metrado - Material" y
+        /// "Metrado - Elemento" son exactamente los de la combinación (un valor vacío se filtra como
+        /// "sin valor"). Columnas de concreto (Longitud, Área, Espesor, Volumen) si el material habla
+        /// de concreto; si no, Longitud, Área de sección, Volumen y Peso (kg). Columnas y muros se
+        /// agrupan por nivel, como en las tablas predeterminadas.
+        /// </summary>
+        private ViewSchedule CrearTablaPorValores(CombinacionMetrado c, BuiltInCategory bic)
+        {
+            bool concreto = EsTextoDeConcreto(c.Material);
+            bool porNivel = bic == BuiltInCategory.OST_StructuralColumns || bic == BuiltInCategory.OST_Walls;
+            string descripcion = c.NombreTabla;
+
+            ViewSchedule vs = ViewSchedule.CreateSchedule(_doc, new ElementId(bic));
+            ScheduleDefinition def = vs.Definition;
+            IList<SchedulableField> campos = def.GetSchedulableFields();
+
+            ScheduleField nivel = !porNivel ? null : Agregar(def, campos, "Nivel",
+                BuiltInParameter.FAMILY_BASE_LEVEL_PARAM,
+                BuiltInParameter.WALL_BASE_CONSTRAINT,
+                BuiltInParameter.LEVEL_PARAM,
+                BuiltInParameter.SCHEDULE_LEVEL_PARAM);
+            ScheduleField tipo = Agregar(def, campos, "Elemento", BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM);
+            Agregar(def, campos, "Material", BuiltInParameter.STRUCTURAL_MATERIAL_PARAM);
+
+            try
+            {
+                ScheduleField cantidad = def.AddField(ScheduleFieldType.Count);
+                cantidad.ColumnHeading = "Cantidad";
+            }
+            catch (Exception ex) { Advertencias.Add($"{descripcion}: sin campo Cantidad ({ex.Message})"); }
+
+            ScheduleField longitud = concreto
+                ? Agregar(def, campos, "Longitud", BuiltInParameter.INSTANCE_LENGTH_PARAM, BuiltInParameter.CURVE_ELEM_LENGTH)
+                : Agregar(def, campos, "Longitud", BuiltInParameter.STRUCTURAL_FRAME_CUT_LENGTH,
+                    BuiltInParameter.INSTANCE_LENGTH_PARAM, BuiltInParameter.CURVE_ELEM_LENGTH);
+
+            if (concreto)
+            {
+                ScheduleField area = Agregar(def, campos, "Área", BuiltInParameter.HOST_AREA_COMPUTED);
+                Agregar(def, campos, "Espesor",
+                    BuiltInParameter.FLOOR_ATTR_THICKNESS_PARAM,
+                    BuiltInParameter.WALL_ATTR_WIDTH_PARAM,
+                    BuiltInParameter.STRUCTURAL_FOUNDATION_THICKNESS);
+                ScheduleField volumen = Agregar(def, campos, "Volumen", BuiltInParameter.HOST_VOLUME_COMPUTED);
+                Totales(longitud, area, volumen);
+            }
+            else
+            {
+                Agregar(def, campos, "Área de sección", BuiltInParameter.STRUCTURAL_SECTION_AREA);
+                ScheduleField volumen = Agregar(def, campos, "Volumen", BuiltInParameter.HOST_VOLUME_COMPUTED);
+                ScheduleField peso = AgregarCompartido(def, campos, "Peso (kg)", ArbaContract.Peso);
+                Totales(longitud, volumen, peso);
+                if (peso == null)
+                {
+                    Advertencias.Add($"{descripcion}: la categoría no tiene el parámetro \"{ClasificadorElementos.NombreParametroPeso}\"; " +
+                                     "la tabla no incluye la columna de peso.");
+                }
+            }
+
+            if (nivel != null)
+            {
+                def.AddSortGroupField(new ScheduleSortGroupField(nivel.FieldId)
+                {
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
+                });
+            }
+            if (tipo != null) def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
+
+            def.IsItemized = false;
+            def.ShowGrandTotal = true;
+            def.ShowGrandTotalTitle = true;
+            def.ShowGrandTotalCount = true;
+            def.GrandTotalTitle = "Total " + descripcion.Substring("Metrado ".Length);
+
+            // Filtros por los valores exactos de los dos parámetros (campos ocultos).
+            bool filtrado = FiltrarPorValor(def, AgregarCompartido(def, campos, "Clasificación", ArbaContract.Material), c.Material);
+            if (!filtrado)
+            {
+                Advertencias.Add($"{descripcion}: no se pudo filtrar por \"{ClasificadorElementos.NombreParametroMaterial}\"; " +
+                                 "la tabla puede incluir elementos de otros materiales.");
+            }
+            filtrado = FiltrarPorValor(def, AgregarCompartido(def, campos, "Grupo", ArbaContract.Elemento), c.Elemento);
+            if (!filtrado)
+            {
+                Advertencias.Add($"{descripcion}: no se pudo filtrar por \"{ClasificadorElementos.NombreParametroElementoRefuerzo}\"; " +
+                                 "la tabla puede incluir elementos de otros grupos.");
+            }
+
+            return vs;
+        }
+
+        /// <summary>
+        /// Filtra la tabla por el campo = valor (o "sin valor" si el texto está vacío) y oculta el
+        /// campo. Devuelve false si el campo no existe o Revit rechaza el filtro.
+        /// </summary>
+        private static bool FiltrarPorValor(ScheduleDefinition def, ScheduleField campo, string valor)
+        {
+            if (campo == null) return false;
+            try
+            {
+                def.AddFilter(string.IsNullOrEmpty(valor)
+                    ? new ScheduleFilter(campo.FieldId, ScheduleFilterType.HasNoValue)
+                    : new ScheduleFilter(campo.FieldId, ScheduleFilterType.Equal, valor));
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            try { campo.IsHidden = true; } catch (Exception) { }
+            return true;
+        }
+
+        /// <summary>
+        /// Tabla de armaduras cuyo "Metrado - Elemento" es exactamente <paramref name="elemento"/>
+        /// (p. ej. un texto propio como "ESCALERAS"), con la estructura de las tablas de acero por
+        /// elemento: Partición (encabezado y pie con totales), Tipo de barra, Diámetro, N° barras,
+        /// Longitud total, Peso unitario y Peso (kg). Si no se puede filtrar por ese parámetro la
+        /// tabla no tiene sentido: se borra y se lanza una excepción (la recoge
+        /// <see cref="CrearOReutilizar"/> como advertencia).
+        /// </summary>
+        private ViewSchedule CrearTablaRefuerzoPorValor(string elemento)
+        {
+            ViewSchedule vs = ViewSchedule.CreateSchedule(_doc, new ElementId(BuiltInCategory.OST_Rebar));
+            ScheduleDefinition def = vs.Definition;
+            IList<SchedulableField> campos = def.GetSchedulableFields();
+
+            ScheduleField campoElemento = AgregarCompartido(def, campos, "Elemento", ArbaContract.Elemento);
+            ScheduleField particion = Agregar(def, campos, "Partición", BuiltInParameter.NUMBER_PARTITION_PARAM);
+            ScheduleField tipo = Agregar(def, campos, "Tipo de barra", BuiltInParameter.ELEM_TYPE_PARAM);
+            Agregar(def, campos, "Diámetro", BuiltInParameter.REBAR_BAR_DIAMETER);
+            ScheduleField cantidad = Agregar(def, campos, "N° barras", BuiltInParameter.REBAR_ELEM_QUANTITY_OF_BARS);
+            ScheduleField longTotal = Agregar(def, campos, "Longitud total", BuiltInParameter.REBAR_ELEM_TOTAL_LENGTH);
+
+            var nombresPeso = new List<string>();
+            if (!string.IsNullOrWhiteSpace(_op.NombreParametroPeso)) nombresPeso.Add(_op.NombreParametroPeso.Trim());
+            nombresPeso.AddRange(CalculadorMetrado.NombresParametroPesoBarra);
+            AgregarPorNombre(def, campos, "Peso unitario", new[] { "REBAR_BAR_MASS_PER_UNIT_LENGTH" }, nombresPeso.ToArray());
+
+            ScheduleField peso = AgregarCompartido(def, campos, "Peso (kg)", ArbaContract.Peso);
+            Totales(cantidad, longTotal, peso);
+
+            if (particion != null)
+            {
+                def.AddSortGroupField(new ScheduleSortGroupField(particion.FieldId)
+                {
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
+                });
+            }
+            if (tipo != null) def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
+
+            def.IsItemized = false;
+            def.ShowGrandTotal = true;
+            def.ShowGrandTotalTitle = true;
+            def.GrandTotalTitle = "Total acero " + elemento;
+
+            if (!FiltrarPorValor(def, campoElemento, elemento))
+            {
+                _doc.Delete(vs.Id);
+                throw new InvalidOperationException("no se pudo filtrar por \"" + ClasificadorElementos.NombreParametroElementoRefuerzo + "\"");
+            }
+
+            if (peso == null)
+            {
+                Advertencias.Add($"{PrefijoAcero}{elemento}: no se encontró el parámetro \"{ClasificadorElementos.NombreParametroPeso}\"; " +
+                                 "la tabla no incluye la columna de peso.");
+            }
+            return vs;
+        }
+
+        // ------------------------------------------------------------------
+        // Tablas de encofrado
+        // ------------------------------------------------------------------
+
+        public const string PrefijoEncofrado = "Metrado encofrado - ";
+        public const string NombreEncofradoGeneral = PrefijoEncofrado + "General";
+
+        /// <summary>
+        /// Tablas de encofrado: "Metrado encofrado - {grupo}" por cada grupo de una categoría (Elemento,
+        /// Material, Cantidad y "Metrado - Encofrado (m²)" con total; columnas y muros además por nivel),
+        /// filtradas por "Metrado - Material" = CONCRETO y "Metrado - Elemento" = grupo, y opcionalmente
+        /// "Metrado encofrado - General": todos los grupos en una tabla de varias categorías agrupada por
+        /// "Metrado - Elemento", solo con los elementos que ya tienen encofrado calculado. El parámetro
+        /// "Metrado - Encofrado (m²)" debe existir (<see cref="ParametroEncofrado.Asegurar"/>). Las
+        /// tablas existentes se reutilizan salvo que se pida regenerarlas.
+        /// </summary>
+        public List<ViewSchedule> GenerarEncofrado(IEnumerable<CategoriaMetrado> grupos, bool tablaGeneral)
+        {
+            var tablas = new List<ViewSchedule>();
+            foreach (CategoriaMetrado cat in grupos)
+            {
+                if (cat.TablaMulticategoria) continue;
+                ViewSchedule t = CrearOReutilizar(PrefijoEncofrado + cat.Nombre, () => CrearTablaEncofrado(cat));
+                if (t != null) tablas.Add(t);
+            }
+            if (tablaGeneral)
+            {
+                ViewSchedule g = CrearOReutilizar(NombreEncofradoGeneral, CrearTablaEncofradoGeneral);
+                if (g != null) tablas.Add(g);
+            }
+            return tablas;
+        }
+
+        private ViewSchedule CrearTablaEncofrado(CategoriaMetrado cat)
+        {
+            string descripcion = PrefijoEncofrado + cat.Nombre;
+            ViewSchedule vs = ViewSchedule.CreateSchedule(_doc, new ElementId(cat.Categoria));
+            ScheduleDefinition def = vs.Definition;
+            IList<SchedulableField> campos = def.GetSchedulableFields();
+
+            ScheduleField nivel = !cat.AgruparPorNivel ? null : Agregar(def, campos, "Nivel",
+                BuiltInParameter.FAMILY_BASE_LEVEL_PARAM,
+                BuiltInParameter.WALL_BASE_CONSTRAINT,
+                BuiltInParameter.LEVEL_PARAM,
+                BuiltInParameter.SCHEDULE_LEVEL_PARAM);
+            ScheduleField tipo = Agregar(def, campos, "Elemento", BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM);
+            Agregar(def, campos, "Material", BuiltInParameter.STRUCTURAL_MATERIAL_PARAM);
+
+            try
+            {
+                ScheduleField cantidad = def.AddField(ScheduleFieldType.Count);
+                cantidad.ColumnHeading = "Cantidad";
+            }
+            catch (Exception ex) { Advertencias.Add($"{descripcion}: sin campo Cantidad ({ex.Message})"); }
+
+            ScheduleField encofrado = AgregarCompartido(def, campos, "Encofrado (m²)", ParametroEncofrado.Definicion);
+            Totales(encofrado);
+            if (encofrado == null)
+            {
+                Advertencias.Add($"{descripcion}: no se encontró el parámetro \"{ParametroEncofrado.Nombre}\"; la tabla no incluye la columna de encofrado.");
+            }
+
+            if (nivel != null)
+            {
+                def.AddSortGroupField(new ScheduleSortGroupField(nivel.FieldId)
+                {
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
+                });
+            }
+            if (tipo != null) def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
+
+            def.IsItemized = false;
+            def.ShowGrandTotal = true;
+            def.ShowGrandTotalTitle = true;
+            def.ShowGrandTotalCount = true;
+            def.GrandTotalTitle = "Total encofrado " + cat.Nombre;
+
+            if (!FiltrarPorValor(def, AgregarCompartido(def, campos, "Clasificación", ArbaContract.Material), ClasificadorElementos.ValorConcreto))
+            {
+                Advertencias.Add($"{descripcion}: no se pudo filtrar por \"{ClasificadorElementos.NombreParametroMaterial}\"; " +
+                                 "la tabla puede incluir elementos que no son de concreto.");
+            }
+            if (!FiltrarPorValor(def, AgregarCompartido(def, campos, "Grupo", ArbaContract.Elemento), cat.NombreParticion))
+            {
+                Advertencias.Add($"{descripcion}: no se pudo filtrar por \"{ClasificadorElementos.NombreParametroElementoRefuerzo}\"; " +
+                                 "la tabla puede incluir elementos de otros grupos.");
+            }
+            return vs;
+        }
+
+        private ViewSchedule CrearTablaEncofradoGeneral()
+        {
+            ViewSchedule vs = ViewSchedule.CreateSchedule(_doc, ElementId.InvalidElementId);
+            ScheduleDefinition def = vs.Definition;
+            IList<SchedulableField> campos = def.GetSchedulableFields();
+
+            ScheduleField grupo = AgregarCompartido(def, campos, "Elemento", ArbaContract.Elemento);
+            ScheduleField categoria = Agregar(def, campos, "Categoría", BuiltInParameter.ELEM_CATEGORY_PARAM);
+            ScheduleField tipo = Agregar(def, campos, "Tipo", BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM);
+
+            try
+            {
+                ScheduleField cantidad = def.AddField(ScheduleFieldType.Count);
+                cantidad.ColumnHeading = "Cantidad";
+            }
+            catch (Exception ex) { Advertencias.Add($"{NombreEncofradoGeneral}: sin campo Cantidad ({ex.Message})"); }
+
+            ScheduleField encofrado = AgregarCompartido(def, campos, "Encofrado (m²)", ParametroEncofrado.Definicion);
+            Totales(encofrado);
+
+            if (grupo != null)
+            {
+                def.AddSortGroupField(new ScheduleSortGroupField(grupo.FieldId)
+                {
+                    ShowHeader = true, ShowFooter = true, ShowFooterTitle = true, ShowBlankLine = true,
+                });
+            }
+            else
+            {
+                Advertencias.Add($"{NombreEncofradoGeneral}: no se encontró el parámetro \"{ClasificadorElementos.NombreParametroElementoRefuerzo}\"; la tabla no se agrupa por elemento.");
+            }
+            if (categoria != null) def.AddSortGroupField(new ScheduleSortGroupField(categoria.FieldId));
+            if (tipo != null) def.AddSortGroupField(new ScheduleSortGroupField(tipo.FieldId));
+
+            def.IsItemized = false;
+            def.ShowGrandTotal = true;
+            def.ShowGrandTotalTitle = true;
+            def.ShowGrandTotalCount = true;
+            def.GrandTotalTitle = "Total encofrado";
+
+            if (!FiltrarPorValor(def, AgregarCompartido(def, campos, "Clasificación", ArbaContract.Material), ClasificadorElementos.ValorConcreto))
+            {
+                Advertencias.Add($"{NombreEncofradoGeneral}: no se pudo filtrar por \"{ClasificadorElementos.NombreParametroMaterial}\".");
+            }
+            if (encofrado == null)
+            {
+                Advertencias.Add($"{NombreEncofradoGeneral}: no se encontró el parámetro \"{ParametroEncofrado.Nombre}\"; la tabla no incluye la columna de encofrado.");
+            }
+            else
+            {
+                // Solo los elementos con encofrado calculado.
+                try { def.AddFilter(new ScheduleFilter(encofrado.FieldId, ScheduleFilterType.HasValue)); }
+                catch (Exception) { }
+            }
+            return vs;
         }
 
         // ------------------------------------------------------------------

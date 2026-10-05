@@ -263,6 +263,13 @@ namespace ExportacionMetrados.Core.Metrado
         /// <summary>Conservar la clasificación de material ya escrita en los elementos.</summary>
         public bool ConservarClasificacionMaterial { get; set; } = false;
 
+        /// <summary>
+        /// Conservar el "Metrado - Elemento" ya escrito en elementos y refuerzo (solo rellenar los
+        /// vacíos), para respetar los textos propios con los que el usuario crea sus propias tablas.
+        /// Solo lo usa el comando "Parámetros y filtros"; el metrado automático siempre lo recalcula.
+        /// </summary>
+        public bool ConservarElemento { get; set; } = false;
+
         /// <summary>Crear tablas aparte para los elementos de acero estructural (perfiles metálicos).</summary>
         public bool TablasAceroEstructural { get; set; } = true;
 

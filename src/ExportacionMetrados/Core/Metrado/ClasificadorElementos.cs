@@ -520,11 +520,13 @@ namespace ExportacionMetrados.Core.Metrado
         /// partición (contrato 1.0.4: la fija de su prefijo, ZAP/CCO/BLQ → CIMIENTOS aunque
         /// el anfitrión sea un suelo, o la del texto) y, si no declara ninguna, el grupo de
         /// su anfitrión (VIGAS, COLUMNAS, CIMIENTOS, LOSAS, MUROS, CONEXIONES, OTROS).
-        /// Siempre se sobrescribe: es un dato calculado, no del usuario. Devuelve el número
+        /// Siempre se sobrescribe: es un dato calculado, no del usuario; salvo con
+        /// <paramref name="conservarExistente"/>, que solo rellena los vacíos (para respetar los
+        /// textos propios que el usuario haya escrito para sus propias tablas). Devuelve el número
         /// de refuerzos actualizados.
         /// </summary>
         public static int RellenarElementoRefuerzo(Document doc, IEnumerable<Element> refuerzo, IList<CategoriaMetrado> categorias,
-            List<string> advertencias)
+            List<string> advertencias, bool conservarExistente = false)
         {
             int n = 0;
 
@@ -534,6 +536,7 @@ namespace ExportacionMetrados.Core.Metrado
                 {
                     Parameter p = ArbaSharedParams.Get(r, ArbaContract.Elemento);
                     if (p == null || p.IsReadOnly || p.StorageType != StorageType.String) continue;
+                    if (conservarExistente && !string.IsNullOrWhiteSpace(p.AsString())) continue;
 
                     Element host = doc.GetElement(AnfitrionDe(r));
                     string valor;
@@ -560,10 +563,11 @@ namespace ExportacionMetrados.Core.Metrado
         /// "Metrado - Partida"). Es lo que filtra las tablas de varias categorías ("Otros",
         /// "Conexiones y anclajes", "Misceláneos") y saca a los misceláneos de las demás.
         /// Devuelve el número de elementos actualizados; <paramref name="miscelaneos"/> cuenta
-        /// los que quedaron en ese grupo.
+        /// los que quedaron en ese grupo. Con <paramref name="conservarExistente"/> solo se
+        /// rellenan los vacíos: los textos propios del usuario (para sus propias tablas) se respetan.
         /// </summary>
         public static int RellenarElementoEnElementos(Document doc, IEnumerable<BuiltInCategory> categorias,
-            IList<CategoriaMetrado> grupos, List<string> advertencias, out int miscelaneos)
+            IList<CategoriaMetrado> grupos, List<string> advertencias, out int miscelaneos, bool conservarExistente = false)
         {
             int n = 0;
             miscelaneos = 0;
@@ -577,6 +581,7 @@ namespace ExportacionMetrados.Core.Metrado
                     if (grupo.EsMiscelaneos) miscelaneos++;
                     Parameter p = ArbaSharedParams.Get(e, ArbaContract.Elemento);
                     if (p == null || p.IsReadOnly || p.StorageType != StorageType.String) continue;
+                    if (conservarExistente && !string.IsNullOrWhiteSpace(p.AsString())) continue;
                     if (!string.Equals(p.AsString() ?? string.Empty, valor, StringComparison.Ordinal))
                     {
                         p.Set(valor);
