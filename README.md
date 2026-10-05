@@ -19,6 +19,12 @@ Plugin para Autodesk Revit, escrito en C#, que exporta las **tablas de planifica
   de colores, pero **sin crear tablas**, para poder cambiar a mano `Metrado - Material` y `Metrado - Elemento`
   (por ejemplo `ESCALERAS`); después lee los valores que haya en el modelo y crea **tablas propias** con ellos,
   aparte de las predeterminadas.
+- Botón **Metrado de encofrado** (panel *Encofrado*): calcula el encofrado (m²) de vigas, columnas,
+  cimentaciones, losas y muros de concreto **según el elemento y su contexto**, leyendo la geometría real:
+  columnas solo caras laterales descontando las vigas que llegan y la losa que las atraviesa; vigas costados y
+  fondo descontando lo que entra en columnas y la losa que apoya; losas fondo y bordes descontando las vigas;
+  cimentaciones solo bordes; muros las dos caras. Escribe `Metrado - Encofrado (m²)`, crea tablas y exporta a
+  Excel el detalle de cada descuento.
 - Integrado con el **contrato ARBA-comun** (`external/ARBA-comun`, versión 1.0.0): comparte con los add-ins de
   armado ARBA la pestaña **ARBA** de la cinta, los ocho parámetros compartidos con GUID fijo (`ARBA - Origen`,
   `ARBA - Código`, `ARBA - Anfitrión`, `Metrado - Partida`, `Metrado - Material`, `Metrado - Peso (kg)`,
@@ -35,12 +41,13 @@ ExportacionMetrados.sln
 NOTAS-ARBA-COMUN.md                Lo que el contrato ARBA-comun no cubre o conviene revisar (visto al integrarlo)
 external/ARBA-comun/               Submódulo git: código común y contrato ARBA (parámetros, partición, cinta)
 src/ExportacionMetrados/
-├── App.cs                         Añade los cinco botones al panel "Metrados" de la pestaña común "ARBA"
+├── App.cs                         Añade los cinco botones al panel "Metrados" y el de encofrado al panel "Encofrado" de la pestaña común "ARBA"
 ├── ExportarMetradosCommand.cs     Comando 1: exporta las tablas de planificación elegidas
 ├── MetradoAutomaticoCommand.cs    Comando 2: metrado automático de concreto y acero
 ├── ParametrosMetradoCommand.cs    Comando 3: parámetros y filtros sin tablas; tablas propias desde los parámetros
 ├── AsignarParticionCommand.cs     Comando 4: partición del acero no creado por ARBA ("VIGAS - MAN-V1")
 ├── MigrarParticionesCommand.cs    Comando 5: migra particiones antiguas y origen al contrato (código común)
+├── MetradoEncofradoCommand.cs     Comando 6 (panel Encofrado): metrado de encofrado según el elemento y su contexto
 ├── ExportacionMetrados.addin      Manifiesto que Revit lee para cargar el plugin
 ├── Core/
 │   ├── LectorTablas.cs            Lee las tablas de Revit (encabezados y cuerpo)
@@ -52,6 +59,11 @@ src/ExportacionMetrados/
 │       ├── GeneradorTablasRevit.cs Crea las tablas de planificación de metrado en el proyecto
 │       ├── GeneradorFiltrosVista.cs Filtros de vista por colores para comprobar el metrado
 │       ├── LectorCombinaciones.cs Lee los valores de "Metrado - Material" / "Metrado - Elemento" del modelo (tablas propias)
+│       ├── Encofrado/
+│       │   ├── ModelosEncofrado.cs    Reglas por elemento (caras laterales / fondo), opciones y resultados
+│       │   ├── CalculadorEncofrado.cs Caras de cada sólido y contacto con los demás elementos de concreto (booleanos / muestreo)
+│       │   ├── ParametroEncofrado.cs  Parámetro compartido "Metrado - Encofrado (m²)" (propio del plugin, no del contrato)
+│       │   └── ExportadorEncofrado.cs Excel: resumen, detalle por elemento y hoja de contactos
 │       ├── GestorSubproyectos.cs  Reserva de subproyectos en modelos compartidos
 │       ├── ExportadorMetrado.cs   Escribe las hojas Resumen, Concreto, Acero estructural, Acero y detalle
 │       └── ModelosMetrado.cs      Opciones, grupos (incluido Misceláneos) y resultados del metrado
@@ -59,6 +71,7 @@ src/ExportacionMetrados/
 │   ├── SeleccionTablasWindow.xaml Ventana de selección de tablas
 │   ├── MetradoAutomaticoWindow.xaml Ventana de opciones del metrado automático
 │   ├── ParametrosMetradoWindow.xaml Ventana de "Parámetros y filtros" (dos pestañas: parámetros / tablas propias)
+│   ├── MetradoEncofradoWindow.xaml Ventana de opciones del metrado de encofrado
 │   ├── AsignarParticionWindow.xaml Ventana de "Asignar partición"
 │   └── TablaItem.cs               Modelo de cada fila de la lista
 └── Resources/                     Iconos de los botones
@@ -144,7 +157,8 @@ Si prefiere no usar la copia automática, copie `ExportacionMetrados.addin` a
    **Exportar a Excel** (exporta tablas de planificación ya existentes), **Metrado automático** (crea las tablas
    de metrado en Revit y opcionalmente las exporta, ver más abajo), **Parámetros y filtros** (parámetros y
    filtros sin tablas, y tablas propias a partir de los parámetros), **Asignar partición** y **Migrar
-   particiones y origen** (ver sus apartados). Pulse **Exportar a Excel**.
+   particiones y origen** (ver sus apartados). En el panel **Encofrado** de la misma pestaña está **Metrado de
+   encofrado**. Pulse **Exportar a Excel**.
 3. Marque las tablas que desea exportar (si la vista activa es una tabla, aparece marcada).
    Puede filtrar por nombre o categoría y usar **Todas** / **Ninguna**.
 4. Ajuste las opciones:
@@ -421,6 +435,61 @@ Para modelos armados con versiones de los add-ins ARBA anteriores al contrato. L
 
 Después de migrar, las tablas `Metrado acero - Vigas / Columnas / Cimentaciones / Losas` agrupan por la nueva
 partición (`CIMIENTOS - ZAP-Z1`...) y `Metrado acero - General` muestra la columna `ARBA - Código`.
+
+## Metrado de encofrado (panel Encofrado)
+
+El botón **Metrado de encofrado** calcula el encofrado en m² de los elementos de concreto **a partir de su
+geometría real y de su contexto**, no con fórmulas por tipo de elemento. Para cada elemento clasificado como
+`CONCRETO` (por `Metrado - Material` o, si no está escrito, por la misma clasificación que usa el metrado
+automático):
+
+1. **Clasifica cada cara** de su sólido por la dirección de su normal: **lateral** (vertical o inclinada más de
+   45°), **fondo** (mira hacia abajo) o **superior** (mira hacia arriba). Las caras superiores no se encofran
+   nunca: son la superficie libre o el apoyo de otro elemento.
+2. **Aplica la regla del elemento** (editable en la ventana):
+
+   | Elemento | Caras que cuentan | Qué se descuenta por contexto |
+   |---|---|---|
+   | Vigas | costados + fondo (+ testeros libres de volados) | lo que entra en columnas o muros, la franja del espesor de la losa que apoya en sus costados, la sección de las vigas secundarias que llegan |
+   | Columnas | solo caras laterales | la sección de las vigas que llegan, la franja del espesor de la losa que las atraviesa; la cara superior y la base no se encofran |
+   | Cimentaciones | solo bordes (laterales) | el contacto con zapatas o cimientos vecinos; el fondo apoya en el terreno y la cara superior queda libre |
+   | Losas | fondo (sofito) + bordes libres y de vanos | el ancho de las vigas y muros bajo el sofito, el contacto de los bordes con vigas, muros y columnas |
+   | Muros | las dos caras y los extremos libres | las losas y vigas que entran, las columnas embebidas, los muros que se le unen; coronación y base no se encofran |
+
+   El **fondo de las losas** tiene su propia opción: contarlo siempre, nunca, o (por defecto) salvo en las losas
+   apoyadas en el **nivel más bajo** del proyecto, que se consideran sobre terreno.
+3. **Descuenta las superficies en contacto con otros elementos de concreto** (el contexto). Sobre cada cara
+   plana que cuenta levanta un prisma fino (de −tolerancia a +tolerancia, 10 mm por defecto) y lo intersecta
+   con cada elemento de concreto cercano, esté o no unido en Revit: el área de las caras del resultado paralelas
+   a la cara original es exactamente la superficie en contacto (la sección de la viga que entra en la columna,
+   la franja de losa apoyada en la viga, el ancho de la viga bajo la losa...). Funciona igual si los elementos
+   se solapan, se tocan o quedan a una holgura menor que la tolerancia; una separación mayor (una junta de
+   dilatación) deja ambas caras libres y las dos se encofran. Si varios vecinos tocan la misma cara, sus
+   contactos se unen para no descontar dos veces la misma zona. Las caras **curvas** (columnas circulares) se
+   muestrean punto a punto cada 2,5 cm con el mismo criterio y se marcan como aproximadas. Como contexto cuentan
+   **todos** los elementos de concreto del modelo (también modelos genéricos, conexiones u "Otros" clasificados
+   como concreto), aunque su grupo no esté marcado; los elementos de archivos vinculados no se consideran.
+
+**Resultados:**
+
+- Parámetro compartido de ejemplar **`Metrado - Encofrado (m²)`** en cada elemento metrado (se crea si falta, en
+  las mismas categorías que `Metrado - Material`; GUID fijo propio del plugin, ver `NOTAS-ARBA-COMUN.md`).
+- Tablas **`Metrado encofrado - Vigas / Columnas / Cimentaciones / Losas / Muros`**: Elemento, Material, Cantidad y
+  Encofrado (m²) con total, filtradas por `Metrado - Material = CONCRETO` y `Metrado - Elemento` = grupo (ejecute
+  antes *Metrado automático* o *Parámetros y filtros* para que esos parámetros estén escritos); columnas y muros
+  además por nivel. Y **`Metrado encofrado - General`**: todos los elementos con encofrado calculado, de varias
+  categorías, agrupados por `Metrado - Elemento`. Se exportan con *Exportar a Excel* como cualquier otra.
+- Excel (opcional): hoja **Resumen** (por elemento, por elemento y tipo, por elemento y nivel, con laterales,
+  fondos, descuento y neto), una hoja por tabla de Revit creada, **Encofrado - Detalle** (una fila por elemento:
+  caras brutas, descuentos, neto, caras superiores no encofradas, fondo no contado, observaciones) y
+  **Contactos** (qué superficie se descontó de cada elemento y con qué elemento vecino), para comprobar cada
+  descuento.
+
+Notas: el cálculo es geométrico y puede tardar algunos minutos en modelos grandes (una intersección por cara y
+vecino cercano). Si una geometría no admite la operación exacta se recurre al muestreo y el elemento queda marcado
+como aproximado en el detalle. Los resultados dependen de cómo esté modelado: una viga que no llega a la columna
+(holgura mayor que la tolerancia) no descuenta nada, y una losa modelada sobre la viga (sin unir) descuenta igual
+que una unida.
 
 ## Notas técnicas
 

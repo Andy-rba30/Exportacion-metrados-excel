@@ -123,11 +123,30 @@ namespace ExportacionMetrados
                 Image = ArbaRibbon.IconMetrados(16),
             };
 
+            // Panel "Encofrado" del contrato (reservado para herramientas de metrado de encofrado).
+            var datosEncofrado = new PushButtonData(
+                "ARBA_Encofrado_Metrado",
+                "Metrado de\nencofrado",
+                rutaEnsamblado,
+                typeof(MetradoEncofradoCommand).FullName)
+            {
+                ToolTip = "Calcula el encofrado (m²) de vigas, columnas, cimentaciones, losas y muros de concreto según el elemento y su " +
+                          "contexto: caras laterales y fondos que se encofran, descontando lo que está en contacto con otros elementos de concreto.",
+                LongDescription = "Lee la geometría real de cada elemento: en columnas solo las caras laterales, descontando la sección de las " +
+                                  "vigas que llegan y el espesor de la losa que las atraviesa; en vigas costados y fondo, descontando lo que entra en " +
+                                  "columnas y la losa que apoya en ellas; en losas el fondo (salvo sobre terreno) y los bordes libres, descontando " +
+                                  "las vigas; en cimentaciones solo los bordes; en muros las dos caras. Escribe \"Metrado - Encofrado (m²)\" en " +
+                                  "cada elemento, crea las tablas \"Metrado encofrado - <elemento>\" y exporta a Excel el detalle de cada descuento.",
+                LargeImage = ArbaRibbon.IconEncofrado(32),
+                Image = ArbaRibbon.IconEncofrado(16),
+            };
+
             ArbaRibbon.AddMetrados(application, datosExportar);
             ArbaRibbon.AddMetrados(application, datosMetrado);
             ArbaRibbon.AddMetrados(application, datosParametros);
             ArbaRibbon.AddMetrados(application, datosParticion);
             ArbaRibbon.AddMetrados(application, datosMigrar);
+            ArbaRibbon.AddButton(application, ArbaRibbon.PanelEncofradoName, datosEncofrado);
         }
 
         private static BitmapImage CargarIcono(string nombre)

@@ -107,3 +107,18 @@ Incidencias / observaciones para el común:
   `ArbaMetrado.ElementoFor` / `CONTRATO.md` para que nadie espere que valide contra `ArbaPartition.IsCategory`.
 - `PROMPTS/09-Exportacion-metrados-excel-1.0.4.md` nombra `src/ExportacionMetrados.Tests`; ese proyecto no existe en
   este repo (las pruebas puras viven en el común).
+
+## 10. Metrado de encofrado: parámetro propio y panel `Encofrado`
+
+El botón **Metrado de encofrado** usa el panel `Encofrado` del contrato (reservado; `ArbaRibbon.AddToPulldown`
+ya lo describe como "Herramientas de metrado de encofrado") con un botón suelto `ARBA_Encofrado_Metrado`
+(`ArbaRibbon.AddButton(app, PanelEncofradoName, …)`), igual que los botones del panel `Metrados`. Convendría
+añadirlo a la tabla de nombres internos de `CONTRATO.md` §3.
+
+El resultado se escribe en un parámetro compartido de ejemplar **`Metrado - Encofrado (m²)`** que **no está en el
+contrato**: el plugin lo define en `Core/Metrado/Encofrado/ParametroEncofrado.cs` como un `ArbaParam` propio
+(`ArbaParamType.Number`, GUID fijo `2662EFB0-F102-4EB6-AD03-2D8FA4C6E0AA`, las mismas categorías que
+`Metrado - Material`) y lo crea y vincula con `ArbaSharedParams.Ensure`, así que se comporta como los del
+contrato (archivo temporal, migración de homónimos, grupo Datos). Si el común quiere que otros add-ins lo lean
+(por ejemplo uno de encofrado), basta con adoptar este GUID en `ArbaContract.Parametros` / `contrato.json`;
+el plugin seguiría funcionando sin cambios porque busca el parámetro por GUID.
